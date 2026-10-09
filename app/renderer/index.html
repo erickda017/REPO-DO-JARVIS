@@ -1,0 +1,23 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <!-- Strict CSP: own scripts only; the bridge is the only network API; media from the owner's own links needs https/blob. -->
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; font-src 'self' data:; connect-src 'self' http://127.0.0.1:8787 http://localhost:8787 ws://127.0.0.1:5174; img-src 'self' data: blob: https: http:; media-src 'self' blob: https: http:; object-src 'none'; base-uri 'none'; frame-src 'none'">
+  <meta name="referrer" content="no-referrer">
+  <title>J.A.R.V.I.S</title>
+</head>
+<body>
+  <!--
+    THESIS: a command center whose centre is a living neural network driven by real requests, not a dashboard of cards.
+    OWN-WORLD: near-black blue field, cyan holographic line work with corner brackets, status in green/amber/red/hollow, Chakra Petch labels over Barlow body.
+    STORY: the owner asks, a pulse travels from the core to the AI that answers, and the answer floats over the scene.
+    FIRST VIEWPORT: full-bleed 3D scene, real nodes labelled, telemetry bottom-left, command bar bottom-centre, floating cards top-left.
+    FORM: holographic HUD (user-pinned); decorative neuron cloud declared as metaphor on screen.
+    FINISH: unreviewed and undocumented is unfinished; this build ends with the finish review, the verdict, DESIGN.md, and every shipping raster carrying its provenance.
+  -->
+  <div id="root"></div>
+  <script type="module" src="/src/main.tsx"></script>
+</body>
+</html>

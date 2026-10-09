@@ -29,3 +29,8 @@ public/mediapipe/
 # Command centre: local config and runtime data (tasks, timer, audit log)
 command.config.json
 /data/
+
+dist-app
+dist-electron
+
+.impeccable/review/

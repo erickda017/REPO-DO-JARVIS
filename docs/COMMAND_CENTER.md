@@ -84,6 +84,37 @@ own prompts before it goes into the main flow.
 - Still never called: Jev, Claude API (no keys supplied), the heavy model, the
   Umbra RPG AI, the notes site.
 
+## Desktop app (Electron + React + TypeScript)
+
+`npm run app` builds the renderer and the Electron shell and opens the window
+(`npm run app:build` to only build). Electron starts the bridge itself unless
+one is already listening on 8787, and serves the UI from `127.0.0.1:5174`
+(inside the range the bridge accepts as an origin). Sources: `app/electron`
+(main process), `app/renderer/src` (UI). Tests: `npm run test:app` (neural
+graph, activity spreading, health tone, command parsing). Preview: `docs/app-home.png`.
+
+- **Home** is a 3D neural scene. Big nodes = real entities (router core, AIs,
+  services, projects, tasks, timer, voice) coloured by measured state; a pulse
+  travels from the core to the AI/service that actually did the work (read from
+  the bridge audit log, or immediately after a chat). The surrounding cloud of
+  small neurons is decorative and says so on screen.
+- **Dynamic panels**: commands such as "como estão as IAs?", "minhas tarefas",
+  "timer de 5 min", "criar tarefa: …", "mostre <url de imagem/vídeo>" are handled
+  by plain rules and open draggable floating cards (status, tasks, timer, image,
+  video). Anything else is chat through the router; the reply floats too. Image or
+  video links written by a model load only after a click (loading would reveal this
+  PC's address to that host).
+- On start it runs the free health checks (no inference, no spend) so the state
+  shown is measured.
+- Views: Rede neural, Conversa, IAs (4-level health), Sistema (services,
+  projects, tasks, timer), Voz (ElevenLabs).
+- **Not done / limits**: no installer yet (`electron-builder` not configured), no
+  HUD-style voice wake word in this app (the original HUD still has it and still
+  needs Claude Code), pulses come from audit events and chats only (no per-token
+  streaming), the `impeccable` finish review and documenter subagents were not run
+  (design detector ran in degraded mode and found nothing; `DESIGN.md` was written
+  by hand from the build).
+
 ## Mode without Claude, and ElevenLabs voice
 
 - **Chat without Claude.** `POST /api/command/ai/chat` takes `messages` (up to 40
