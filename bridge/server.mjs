@@ -105,7 +105,8 @@ const ALLOW_WRITES = process.env.JARVIS_ALLOW_WRITES === '1'
  * timer (bridge/command/). Started once per process; its HTTP API is mounted
  * under /api/command/ and a narrow set of its tools is handed to the agent.
  */
-const command = createCommand({ allowNoOrigin: ALLOW_NO_ORIGIN })
+const command = createCommand({ allowNoOrigin: ALLOW_NO_ORIGIN, envKey: () => baseElevenKey() })
+await command.voice.ready()
 
 /**
  * The orchestrator model. Override with JARVIS_MODEL to trade quality for pace
@@ -458,7 +459,12 @@ Using tools:
  * machine — no reason to make you paste it into a second .env file. The browser
  * never sees it: it POSTs text to /tts here and gets audio back.
  */
+// The key saved from the command-centre panel wins, then the base lookup below.
 function elevenKey() {
+  return command.voice.key()
+}
+
+function baseElevenKey() {
   if (process.env.ELEVENLABS_API_KEY) return process.env.ELEVENLABS_API_KEY
   try {
     const cfg = JSON.parse(
@@ -470,7 +476,6 @@ function elevenKey() {
   }
 }
 
-const VOICE_ID = process.env.JARVIS_VOICE_ID ?? 'JBFqnCBsd6RMkjVDRZzb'
 
 /**
  * Where /file is permitted to read from, and how big a read may get.
@@ -858,7 +863,7 @@ const handleRequest = async (req, res) => {
     }
     try {
       const upstream = await fetch(
-        `https://api.elevenlabs.io/v1/text-to-speech/${VOICE_ID}/stream` +
+        `https://api.elevenlabs.io/v1/text-to-speech/${command.voice.voiceId()}/stream` +
           // 22kHz mono is half the bytes of 44kHz and indistinguishable through
           // a laptop speaker; optimize_streaming_latency=3 trades a little
           // prosody for a much earlier first byte.

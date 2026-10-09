@@ -29,14 +29,22 @@
 <div class="grid">
   <section><h2>IAs</h2><div id="providers"></div></section>
   <section><h2>Serviços</h2><div id="services"></div><h2 style="margin-top:12px">Projetos</h2><div id="projects"></div></section>
-  <section><h2>Perguntar</h2>
-    <textarea id="prompt" rows="3" placeholder="Pergunte algo (roteado para uma IA elegível)"></textarea>
+  <section><h2>Chat (sem Claude)</h2>
+    <div id="chat" class="dim" style="max-height:260px;overflow:auto"></div>
+    <textarea id="prompt" rows="2" placeholder="Fale com o JARVIS (roteado para uma IA elegível)"></textarea>
     <div class="row">
       <label><input type="checkbox" id="sensitive"> sensível (nunca sai deste PC)</label>
       <label><input type="checkbox" id="spend"> autorizo gasto (provedores pagos)</label>
-      <button id="ask">Enviar</button>
+      <label><input type="checkbox" id="speak"> falar resposta</label>
+      <button id="ask">Enviar</button><button id="reset">Nova conversa</button>
     </div>
-    <pre id="answer" class="dim"></pre>
+  </section>
+  <section><h2>Voz · ElevenLabs</h2>
+    <div id="vstatus" class="dim"></div>
+    <input type="password" id="vkey" placeholder="Chave da API ElevenLabs (nunca é exibida de volta)" autocomplete="off">
+    <div class="row"><select id="vlist" style="flex:1"><option value="">voz padrão do JARVIS</option></select></div>
+    <div class="row"><button id="vsave">Salvar</button><button id="vtest">Testar chave / listar vozes</button><button id="vclear">Remover</button></div>
+    <div class="dim">A chave fica só neste PC (data/voice.json). Reinicie a página principal do JARVIS para ela usar a nova voz.</div>
   </section>
   <section><h2>Tarefas</h2>
     <div class="row"><input type="text" id="ttitle" placeholder="Nova tarefa" style="flex:1"><select id="tprio"><option>normal</option><option>low</option><option>high</option><option>urgent</option></select><button id="tadd">+</button></div>
@@ -53,7 +61,8 @@ const BASE = new URLSearchParams(location.search).get('bridge') || 'http://127.0
 const $ = (id) => document.getElementById(id)
 const el = (tag, cls, text) => { const e = document.createElement(tag); if (cls) e.className = cls; if (text != null) e.textContent = text; return e }
 async function api(method, path, body) {
-  const r = await fetch(`${BASE}/api/command/${path}`, { method, headers: body ? { 'content-type': 'application/json' } : {}, body: body ? JSON.stringify(body) : undefined })
+  const post = method === 'POST' // POST always carries JSON, even empty: the API requires the content type
+  const r = await fetch(`${BASE}/api/command/${path}`, { method, headers: post ? { 'content-type': 'application/json' } : {}, body: post ? JSON.stringify(body ?? {}) : undefined })
   const j = await r.json().catch(() => ({}))
   if (!r.ok) throw new Error(j.error || j.message || `HTTP ${r.status}`)
   return j
@@ -110,14 +119,54 @@ async function load() {
   try { const o = await api('GET', 'overview'); renderProviders(o.providers); renderServices(o.services); renderProjects(o.projects); renderTasks(o.tasks); renderTimer(o.timer); msg() }
   catch (e) { msg(`Bridge inacessível em ${BASE} (${e.message}). Rode "npm start" e abra esta página por http://localhost:5173/command.html`) }
 }
-$('ask').onclick = async () => {
-  const out = $('answer'); out.textContent = '…'
-  try {
-    const r = await api('POST', 'ai/ask', { prompt: $('prompt').value, sensitive: $('sensitive').checked, confirm: $('spend').checked })
-    const via = r.routing?.choice ? ` · triagem: ${r.routing.choice}` : ''
-    out.textContent = `${r.text}\n\n— ${r.provider} / ${r.model} · ${r.latencyMs} ms${via}`
-  } catch (e) { out.textContent = `Falhou: ${e.message}` }
+let history = []
+function bubble(who, text, meta) {
+  const d = el('div'); d.style.margin = '6px 0'
+  d.append(el('b', '', who + ': '), el('span', '', text)); if (meta) d.append(el('div', 'dim', meta))
+  $('chat').append(d); $('chat').scrollTop = 1e9
 }
+async function speak(text) {
+  try {
+    if (voiceOn) {
+      const r = await fetch(`${BASE}/tts`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ text }) })
+      if (r.ok) { new Audio(URL.createObjectURL(await r.blob())).play(); return }
+    }
+  } catch { /* fall back to the browser voice */ }
+  const u = new SpeechSynthesisUtterance(text); u.lang = 'pt-BR'; speechSynthesis.speak(u)
+}
+async function ask() {
+  const text = $('prompt').value.trim(); if (!text) return
+  $('prompt').value = ''; bubble('Você', text); history.push({ role: 'user', content: text })
+  try {
+    const r = await api('POST', 'ai/chat', { messages: history, sensitive: $('sensitive').checked, confirm: $('spend').checked })
+    history.push({ role: 'assistant', content: r.text })
+    bubble('JARVIS', r.text, `${r.provider} / ${r.model} · ${r.latencyMs} ms${r.routing?.choice ? ' · triagem: ' + r.routing.choice : ''}`)
+    if ($('speak').checked) speak(r.text)
+  } catch (e) { history.pop(); bubble('Erro', e.message) }
+}
+$('ask').onclick = ask
+$('prompt').onkeydown = (e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); ask() } }
+$('reset').onclick = () => { history = []; $('chat').replaceChildren() }
+
+let voiceOn = false
+async function loadVoice() {
+  try {
+    const v = await api('GET', 'voice'); voiceOn = v.configured
+    $('vstatus').textContent = v.configured ? `configurada (origem: ${v.source}, final …${v.last4}) · voz: ${v.voiceId}` : 'sem chave: a voz usa o navegador'
+  } catch (e) { msg(e) }
+}
+$('vsave').onclick = async () => {
+  try { await api('POST', 'voice', { apiKey: $('vkey').value || undefined, voiceId: $('vlist').value || undefined }); $('vkey').value = ''; loadVoice() } catch (e) { msg(e) }
+}
+$('vtest').onclick = async () => {
+  try {
+    const r = await api('POST', 'voice/test'); const sel = $('vlist'); const keep = sel.value
+    sel.replaceChildren(new Option('voz padrão do JARVIS', '')); for (const v of r.voices) sel.append(new Option(v.name, v.id)); sel.value = keep
+    $('vstatus').textContent = `chave válida · ${r.voices.length} vozes (${r.latencyMs} ms)`; msg()
+  } catch (e) { msg(e) }
+}
+$('vclear').onclick = async () => { if (confirm('Remover a chave salva neste PC?')) { try { await api('POST', 'voice/clear'); loadVoice() } catch (e) { msg(e) } } }
+loadVoice()
 $('tadd').onclick = async () => { if (!$('ttitle').value.trim()) return; try { await api('POST', 'tasks', { title: $('ttitle').value, priority: $('tprio').value }); $('ttitle').value = ''; load() } catch (e) { msg(e) } }
 for (const b of document.querySelectorAll('[data-t]')) b.onclick = async () => { try { await api('POST', `timer/${b.dataset.t}`, b.dataset.t === 'start' ? { seconds: Number($('tsec').value) } : {}); load() } catch (e) { msg(e) } }
 load(); setInterval(load, 15000)

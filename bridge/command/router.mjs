@@ -43,6 +43,14 @@ export function createRouter({ registry, health, audit, clock = Date.now, cooldo
 
   async function run(request) {
     const req = { capability: 'chat', sensitive: false, confirmSpend: false, ...request }
+    if (req.messages !== undefined) {
+      const m = req.messages
+      const valid =
+        Array.isArray(m) && m.length > 0 && m.length <= 40 && m.at(-1).role === 'user' &&
+        m.every((x) => (x?.role === 'user' || x?.role === 'assistant') && typeof x.content === 'string' && x.content.length > 0 && x.content.length <= 8000)
+      if (!valid) throw new ProviderError('bad_request', 'messages must be 1-40 user/assistant turns ending with a user turn (<= 8000 chars each)')
+      req.prompt = m.at(-1).content // used for triage and audit length only
+    }
     if (!req.prompt || typeof req.prompt !== 'string') {
       throw new ProviderError('bad_request', 'prompt must be a non-empty string')
     }
@@ -65,7 +73,7 @@ export function createRouter({ registry, health, audit, clock = Date.now, cooldo
         continue
       }
       try {
-        const out = await p.adapter.infer({ model, prompt: req.prompt, system: req.system, maxTokens: req.maxTokens })
+        const out = await p.adapter.infer({ model, prompt: req.prompt, messages: req.messages, system: req.system, maxTokens: req.maxTokens })
         audit?.record('ai.infer', { provider: p.id, model, ok: true, promptChars: req.prompt.length, latencyMs: out.latencyMs })
         attempts.push({ provider: p.id, ok: true })
         return { ...out, attempts }
@@ -138,6 +146,7 @@ export function createRouter({ registry, health, audit, clock = Date.now, cooldo
    */
   async function smartRun(request, { minConfidence = 0.6 } = {}) {
     const req = { sensitive: false, ...request }
+    if (Array.isArray(req.messages) && !req.prompt) req.prompt = req.messages.at(-1)?.content
     const caps = new Set()
     for (const p of registry.list()) {
       const ok = p.enabled && p.type !== 'unverified' && !p.capabilities.includes('decision') && !(req.sensitive && p.external && !p.allowSensitive)

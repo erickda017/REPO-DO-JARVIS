@@ -144,3 +144,60 @@ test('api: full flow, spend gate, content-type and origin rules, no secrets in a
     assert.ok(!audit.text.includes('ping'), 'audit must not hold prompt text')
     for (const b of bodies) assert.ok(!b.includes(SECRET), 'api reply leaked the key')
   }))
+
+import { createVoice } from '../../bridge/command/voice.mjs'
+
+test('voice: panel key wins, never returned, validated, persisted, cleared', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'jv-'))
+  const file = join(dir, 'voice.json')
+  const KEY = 'xi-PANELSECRET123456'
+  const v = createVoice({ file, env: { ELEVENLABS_API_KEY: 'env-key-ABCDEFGH' }, envKey: () => 'mcp-key-ABCDEFGH' })
+  assert.equal((await v.status()).source, 'env')
+  await assert.rejects(v.set({ apiKey: 'short' }), /8-200/)
+  await assert.rejects(v.set({ voiceId: 'bad id!' }), /voiceId/)
+  const st = await v.set({ apiKey: KEY, voiceId: 'AbCdEfGhIjKlMn' })
+  assert.deepEqual([st.source, st.last4, st.voiceId], ['panel', '3456', 'AbCdEfGhIjKlMn'])
+  assert.ok(!JSON.stringify(st).includes('PANELSECRET'))
+  assert.equal(v.key(), KEY)
+  const again = createVoice({ file, env: {} })
+  await again.ready()
+  assert.equal(again.key(), KEY) // survived a restart
+  await v.clear()
+  assert.equal(v.key(), 'env-key-ABCDEFGH')
+})
+
+test('voice test: lists voices with the xi-api-key header; no key -> auth error', async () => {
+  const f = fakeFetch(() => ({ body: { voices: [{ voice_id: 'v1', name: 'George' }] } }))
+  const v = createVoice({ env: { ELEVENLABS_API_KEY: 'env-key-ABCDEFGH' }, fetch: f })
+  const out = await v.test()
+  assert.deepEqual(out.voices, [{ id: 'v1', name: 'George' }])
+  assert.equal(f.calls[0].url, 'https://api.elevenlabs.io/v1/voices')
+  assert.equal(f.calls[0].headers['xi-api-key'], 'env-key-ABCDEFGH')
+  await assert.rejects(createVoice({ env: {} }).test(), (e) => e.kind === 'auth')
+  const rejected = createVoice({ env: { ELEVENLABS_API_KEY: 'env-key-ABCDEFGH' }, fetch: fakeFetch(() => ({ status: 401, body: {} })) })
+  await assert.rejects(rejected.test(), (e) => e.kind === 'auth')
+})
+
+test('api: chat keeps history (no Claude), validates turns; voice endpoints never leak the key', () =>
+  withApi(async ({ call, f }) => {
+    const local = { messages: [{ role: 'user', content: 'oi' }, { role: 'assistant', content: 'olá' }, { role: 'user', content: 'tudo bem?' }], confirm: true }
+    const ok = await call('POST', '/api/command/ai/chat', local)
+    assert.equal(ok.status, 200)
+    const sent = JSON.parse(f.calls.find((c) => c.url.includes('/v1/messages')).body)
+    assert.equal(sent.messages.length, 3)
+    assert.match(sent.system, /JARVIS/)
+    assert.equal((await call('POST', '/api/command/ai/chat', { messages: [{ role: 'assistant', content: 'x' }], confirm: true })).status, 400)
+    assert.equal((await call('POST', '/api/command/ai/chat', { messages: [{ role: 'system', content: 'x' }], confirm: true })).status, 400)
+
+    const secret = 'xi-NEVERLEAKME123456'
+    const set = await call('POST', '/api/command/voice', { apiKey: secret, voiceId: 'AbCdEfGhIjKlMn' })
+    assert.equal(set.status, 200)
+    assert.ok(!set.text.includes('NEVERLEAKME'))
+    const got = await call('GET', '/api/command/voice')
+    assert.ok(!got.text.includes('NEVERLEAKME'))
+    assert.equal(got.json.last4, '3456')
+    assert.equal((await call('POST', '/api/command/voice', { apiKey: 'x y' })).status, 400)
+    const audit = await call('GET', '/api/command/audit')
+    assert.ok(!audit.text.includes('NEVERLEAKME'))
+    assert.equal((await call('POST', '/api/command/voice/clear')).json.source, null)
+  }))

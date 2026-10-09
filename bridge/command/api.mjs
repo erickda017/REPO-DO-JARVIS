@@ -41,7 +41,11 @@ async function readJson(req) {
  * Nothing here returns a key: the config exposes env-var *names* and provider
  * status never includes request headers.
  */
-export function createApi({ health, router, services, projects, tasks, timer, audit, allowNoOrigin }) {
+const PERSONA =
+  'Você é o JARVIS, assistente pessoal do usuário. Responda em português do Brasil, de forma direta e curta ' +
+  '(no máximo duas ou três frases, a menos que peçam mais). Não invente fatos nem ações que não executou.'
+
+export function createApi({ health, router, services, projects, tasks, timer, audit, voice, allowNoOrigin }) {
   const PREFIX = '/api/command/'
 
   const routes = {
@@ -85,6 +89,19 @@ export function createApi({ health, router, services, projects, tasks, timer, au
         confirmSpend: b.confirm === true,
         maxTokens: Number.isInteger(b.maxTokens) ? Math.min(b.maxTokens, 4096) : undefined,
       }),
+    // Chat with history, no Claude involved: whichever eligible provider the router picks.
+    'POST ai/chat': async (b) =>
+      router.smartRun({
+        messages: b.messages,
+        system: PERSONA,
+        sensitive: b.sensitive === true,
+        confirmSpend: b.confirm === true,
+        maxTokens: Number.isInteger(b.maxTokens) ? Math.min(b.maxTokens, 2048) : 512,
+      }),
+    'GET voice': async () => voice.status(),
+    'POST voice': async (b) => voice.set({ apiKey: b.apiKey, voiceId: b.voiceId }),
+    'POST voice/test': async () => voice.test(),
+    'POST voice/clear': async () => voice.clear(),
     'GET services': async () => services.list(),
     'POST services/check': async (b) => {
       if (typeof b.id !== 'string' || !services.has(b.id)) throw new HttpError(404, 'unknown service')
@@ -128,7 +145,7 @@ export function createApi({ health, router, services, projects, tasks, timer, au
     } catch (err) {
       if (err instanceof HttpError) return send(err.status, { error: err.message }), true
       if (err instanceof RouteError) return send(err.message.startsWith('blocked') ? 409 : 502, err.toJSON()), true
-      if (err instanceof ProviderError) return send(502, err.toJSON()), true
+      if (err instanceof ProviderError) return send(err.kind === 'bad_request' ? 400 : 502, err.toJSON()), true
       // Task and timer validation errors are plain Errors with user-safe text.
       send(400, { error: String(err?.message ?? err).slice(0, 200) })
     }

@@ -45,9 +45,9 @@ export function anthropicProvider(cfg, { fetch: fetchImpl = fetch, env = process
       return { endpoint, auth: { state: 'ok' }, models }
     },
 
-    async infer({ model, prompt, system, maxTokens = 512 }) {
+    async infer({ model, prompt, messages, system, maxTokens = 512 }) {
       if (!key()) throw new ProviderError('auth', `${keyName} is not set`, { provider: cfg.id })
-      const body = { model, max_tokens: maxTokens, messages: [{ role: 'user', content: prompt }] }
+      const body = { model, max_tokens: maxTokens, messages: messages ?? [{ role: 'user', content: prompt }] }
       if (system) body.system = system
       const res = await request(fetchImpl, `${baseUrl}/v1/messages`, {
         method: 'POST',

@@ -44,8 +44,8 @@ export function openaiCompatProvider(cfg, { fetch: fetchImpl = fetch, env = proc
       return { endpoint, auth, models: res.json.data.map((m) => m.id).filter(Boolean) }
     },
 
-    async infer({ model, prompt, system, maxTokens = 512 }) {
-      const messages = [...(system ? [{ role: 'system', content: system }] : []), { role: 'user', content: prompt }]
+    async infer({ model, prompt, messages: history, system, maxTokens = 512 }) {
+      const messages = [...(system ? [{ role: 'system', content: system }] : []), ...(history ?? [{ role: 'user', content: prompt }])]
       const res = await request(fetchImpl, `${baseUrl}/chat/completions`, {
         method: 'POST',
         headers: headers(),

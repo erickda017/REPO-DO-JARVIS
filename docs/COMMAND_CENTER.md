@@ -1,10 +1,10 @@
-# Command centre — status and handover
+﻿# Command centre â€” status and handover
 
 Work done remotely, **without access to the author's local machine, projects or
 the Jev AI service**. Everything below was verified against fake network
 responses only. No real provider, token or paid API was called.
 
-## Phase A — audit of the base (`adewaskar/jarvis`, MIT)
+## Phase A â€” audit of the base (`adewaskar/jarvis`, MIT)
 
 Imported unmodified in the first commit, so `git diff` against it shows exactly
 what the command centre added.
@@ -12,7 +12,7 @@ what the command centre added.
 | Area | Finding |
 |---|---|
 | Frontend | React 19 + Vite + Three.js/GLSL face, Zustand store, voice (Porcupine wake word, local VAD, browser STT/TTS, optional ElevenLabs, Kokoro) |
-| Backend | `bridge/server.mjs` (Node ≥ 20): HTTP + WebSocket on `:8787`, runs the **Claude Agent SDK** (`query()`), i.e. Claude Code headless on the user's Claude login |
+| Backend | `bridge/server.mjs` (Node â‰¥ 20): HTTP + WebSocket on `:8787`, runs the **Claude Agent SDK** (`query()`), i.e. Claude Code headless on the user's Claude login |
 | Tools | Every MCP server in `~/.claude.json` is passed in by hand, plus in-process servers `jarvis` (HUD), `jarvis_ui`, `jarvis_chrome`, `jarvis_eyes` |
 | Permissions | `decideTool()` is default-deny for effectful tools; `settingSources: []` makes it the only authority; writes need `JARVIS_ALLOW_WRITES=1` |
 | Network safety | Origin allow-list on HTTP and WebSocket, SSRF-guarded `/img` `/media` `/file`, CSP, DOMPurify on model HTML |
@@ -24,24 +24,24 @@ choices and unverified by me; `probeUrl` is an unused import in the base.
 
 ## What was added (all under `bridge/command/`, one wiring edit in `server.mjs`)
 
-- **Provider layer** — `providers/{anthropic,openaiCompat,unverified,registry}.mjs`.
+- **Provider layer** â€” `providers/{anthropic,openaiCompat,unverified,registry}.mjs`.
   One adapter interface (`probe()`, `infer()`), normalised `ProviderError`
   kinds, per-request timeout, size cap, no redirect following.
-- **Router** (`router.mjs`) — capability + priority selection; sensitive data
+- **Router** (`router.mjs`) â€” capability + priority selection; sensitive data
   never goes to external providers unless `allowSensitive`; paid calls need
   `confirmSpend`; fallback only after retryable errors and only between
   eligible providers; real attempts are always reported, a failed route is
   never turned into a fake answer.
-- **AI health** (`health.mjs`) — `endpoint`, `auth`, `model`, `inference` kept
+- **AI health** (`health.mjs`) â€” `endpoint`, `auth`, `model`, `inference` kept
   separate (`ok | fail | unknown | skipped`). Inference is opt-in and needs `confirm`.
 - **Service monitor**, **project monitor**, **tasks**, **timer**, **audit log**
   (redacted, no prompt text), **HTTP API** `/api/command/*`, and a deliberately
-  narrow **MCP server** `jarvis_command` (status, tasks, timer — no delete, no
+  narrow **MCP server** `jarvis_command` (status, tasks, timer â€” no delete, no
   inference).
 - Config in `command.config.json` (see `command.config.example.json`): API keys
   are referenced by *env var name*, never stored.
 
-Run the tests: `npm run test:command` (31 tests, fake `fetch`, no network).
+Run the tests: `npm run test:command` (34 tests, fake `fetch`, no network).
 
 ## Jev is a decision layer, not the maestro
 
@@ -83,6 +83,26 @@ own prompts before it goes into the main flow.
   inspected in a browser (headless screenshot failed on this machine).
 - Still never called: Jev, Claude API (no keys supplied), the heavy model, the
   Umbra RPG AI, the notes site.
+
+## Mode without Claude, and ElevenLabs voice
+
+- **Chat without Claude.** `POST /api/command/ai/chat` takes `messages` (up to 40
+  user/assistant turns, last one from the user) and answers through the router
+  with a short Brazilian-Portuguese JARVIS persona. The panel's chat box uses it,
+  so the command centre (chat, monitors, tasks, timer) keeps working with no
+  Claude Code subscription. The HUD with wake word and tools does **not**: its brain
+  is the Claude Agent SDK. Verified with the local llama-server (history kept:
+  it answered the name given two turns earlier).
+- **ElevenLabs from the panel.** "Voz Â· ElevenLabs" saves the key (and optionally a
+  voice) to `data/voice.json` (gitignored, never returned by any endpoint: only
+  `configured`, `source`, last 4 characters). Precedence: saved in panel > env
+  `ELEVENLABS_API_KEY` > the base's `~/.claude.json` lookup. "Testar" lists the
+  account's voices (free call) to pick one. The bridge's existing `/tts` and
+  `/stt` use this key, so the HUD picks it up after the page is reloaded. The
+  chat's "falar resposta" uses `/tts`, or the browser voice if no key is set.
+  Not verified against the real ElevenLabs API (no key was supplied).
+- The key is stored in plain text in `data/voice.json`; on Windows the file
+  permissions are those of the folder.
 
 ## Module status
 
