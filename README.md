@@ -313,3 +313,9 @@ MIT.
 The boot sound and any tracks in `public/audio/` ship with the project for the
 demo. If you go on to monetise something built on this, clearing the rights to
 that audio is your responsibility.
+
+---
+
+## Command centre (this fork)
+
+This fork adds a multi-provider command centre on top of the original bridge: provider layer, AI/service/project monitors, tasks and a timer. See [docs/COMMAND_CENTER.md](docs/COMMAND_CENTER.md) for status, limits and setup, and `command.config.example.json` for configuration.

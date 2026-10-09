@@ -27,6 +27,8 @@ import { readFile, realpath, stat } from 'node:fs/promises'
 import { isAbsolute, join, relative, resolve as resolvePath } from 'node:path'
 import { openRemote, proxyError, vetTarget, PROXY_UA } from './net.mjs'
 import { probeUrl, renderPage } from './page.mjs'
+import { createCommand } from './command/index.mjs'
+import { commandServer } from './command/mcp.mjs'
 
 const PORT = Number(process.env.JARVIS_BRIDGE_PORT ?? 8787)
 
@@ -97,6 +99,13 @@ function originAllowed(origin) {
  * without it, and turn it on once you trust what you're demoing.
  */
 const ALLOW_WRITES = process.env.JARVIS_ALLOW_WRITES === '1'
+
+/**
+ * The command centre: AI-provider monitor, service/project monitor, tasks and
+ * timer (bridge/command/). Started once per process; its HTTP API is mounted
+ * under /api/command/ and a narrow set of its tools is handed to the agent.
+ */
+const command = createCommand({ allowNoOrigin: ALLOW_NO_ORIGIN })
 
 /**
  * The orchestrator model. Override with JARVIS_MODEL to trade quality for pace
@@ -264,6 +273,10 @@ function decideTool(name) {
     // here rather than left to the verb rules below, which read `ui_theme` as
     // a write and would hold the whole surface back behind ALLOW_WRITES.
     if (server === 'jarvis' || server === 'jarvis_ui') return true
+
+    // Command centre tools are local bookkeeping and read-only status checks;
+    // anything that spends tokens or deletes data is not exposed as a tool.
+    if (server === 'jarvis_command') return true
 
     // The browser server gates itself, at construction: chromeServer() only
     // builds the acting tools — click, type, form input, close tab — when
@@ -675,6 +688,8 @@ const handleRequest = async (req, res) => {
     res.writeHead(204, cors)
     return res.end()
   }
+
+  if (req.url?.startsWith('/api/command/') && (await command.api.handle(req, res, cors))) return
 
   if (req.method === 'GET' && req.url === '/health') {
     // The browser reads this once at boot to decide which voice engine to use.
@@ -1214,6 +1229,7 @@ wss.on('connection', (socket) => {
         jarvis_chrome: chromeServer({ allowWrites: ALLOW_WRITES }),
         // The camera, which unlike everything else here has to ask and wait.
         jarvis_eyes: visionServer(ask),
+        jarvis_command: commandServer(command),
       },
       // A plain system prompt, not the claude_code preset. The preset is
       // tuned for a coding agent — verbose, file-oriented, and a large chunk

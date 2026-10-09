@@ -1,0 +1,36 @@
+{
+  "//": "Copy to command.config.json (gitignored). API keys are NEVER written here: apiKeyEnv names an environment variable.",
+  "autoStartMonitors": false,
+  "providers": [
+    {
+      "id": "claude-api",
+      "type": "anthropic",
+      "label": "Claude API (separate from the Claude Code login)",
+      "apiKeyEnv": "ANTHROPIC_API_KEY",
+      "models": ["REPLACE_WITH_A_MODEL_ID_FROM_YOUR_ACCOUNT"],
+      "capabilities": ["chat", "coding"],
+      "priority": 10,
+      "enabled": false
+    },
+    {
+      "id": "jev-ai",
+      "type": "unverified",
+      "label": "Jev AI (maestro candidate)",
+      "note": "identity, endpoint, auth and request format not confirmed yet",
+      "enabled": false
+    },
+    {
+      "id": "local-llm",
+      "type": "unverified",
+      "label": "Local LLM app",
+      "note": "inspect the app first; if it exposes an OpenAI-style API switch type to openai-compat",
+      "enabled": false
+    }
+  ],
+  "services": [
+    { "id": "jarvis-bridge", "name": "JARVIS bridge", "url": "http://127.0.0.1:8787/health", "intervalSec": 60 }
+  ],
+  "projects": [
+    { "id": "jarvis", "name": "JARVIS", "port": 8787, "serviceId": "jarvis-bridge" }
+  ]
+}
