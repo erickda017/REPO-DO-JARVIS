@@ -17,7 +17,7 @@
     "bridge": "node bridge/server.mjs",
     "bridge:writes": "JARVIS_ALLOW_WRITES=1 node bridge/server.mjs",
     "setup": "node scripts/setup.mjs",
-    "test:command": "node --test 'test/command/*.test.mjs'"
+    "test:command": "node --test \"test/command/*.test.mjs\""
   },
   "dependencies": {
     "@anthropic-ai/claude-agent-sdk": "^0.3.220",

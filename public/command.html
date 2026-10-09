@@ -1,0 +1,126 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>JARVIS · Centro de comando</title>
+<style>
+  :root { --bg:#04090f; --panel:#08141f; --line:#0d3a52; --fg:#bfefff; --dim:#5f8ea3; --ok:#2de2a6; --warn:#ffc857; --bad:#ff5d73; --acc:#19d3ff }
+  * { box-sizing:border-box }
+  body { margin:0; background:var(--bg); color:var(--fg); font:14px/1.45 ui-monospace,Consolas,monospace; padding:16px }
+  h1 { font-size:15px; letter-spacing:.3em; color:var(--acc); margin:0 0 12px }
+  h2 { font-size:12px; letter-spacing:.2em; color:var(--dim); margin:0 0 8px; text-transform:uppercase }
+  .grid { display:grid; gap:12px; grid-template-columns:repeat(auto-fit,minmax(320px,1fr)) }
+  section { background:var(--panel); border:1px solid var(--line); border-radius:6px; padding:12px }
+  .row { display:flex; gap:8px; align-items:center; flex-wrap:wrap; margin:4px 0 }
+  .pill { padding:1px 8px; border-radius:10px; border:1px solid currentColor; font-size:12px }
+  .ok,.up,.running { color:var(--ok) } .fail,.down,.stopped { color:var(--bad) }
+  .unknown,.skipped,.degraded { color:var(--warn) }
+  button,input,select,textarea { background:#06202e; color:var(--fg); border:1px solid var(--line); border-radius:4px; padding:5px 9px; font:inherit }
+  button { cursor:pointer } button:hover { border-color:var(--acc) }
+  textarea,input[type=text] { width:100%; margin:4px 0 }
+  .dim { color:var(--dim); font-size:12px } pre { white-space:pre-wrap; margin:6px 0 0 }
+  #err { color:var(--bad) }
+</style>
+</head>
+<body>
+<h1>J.A.R.V.I.S · CENTRO DE COMANDO</h1>
+<div id="err" class="dim"></div>
+<div class="grid">
+  <section><h2>IAs</h2><div id="providers"></div></section>
+  <section><h2>Serviços</h2><div id="services"></div><h2 style="margin-top:12px">Projetos</h2><div id="projects"></div></section>
+  <section><h2>Perguntar</h2>
+    <textarea id="prompt" rows="3" placeholder="Pergunte algo (roteado para uma IA elegível)"></textarea>
+    <div class="row">
+      <label><input type="checkbox" id="sensitive"> sensível (nunca sai deste PC)</label>
+      <label><input type="checkbox" id="spend"> autorizo gasto (provedores pagos)</label>
+      <button id="ask">Enviar</button>
+    </div>
+    <pre id="answer" class="dim"></pre>
+  </section>
+  <section><h2>Tarefas</h2>
+    <div class="row"><input type="text" id="ttitle" placeholder="Nova tarefa" style="flex:1"><select id="tprio"><option>normal</option><option>low</option><option>high</option><option>urgent</option></select><button id="tadd">+</button></div>
+    <div id="tasks"></div>
+  </section>
+  <section><h2>Temporizador</h2>
+    <div id="timer" class="dim"></div>
+    <div class="row"><input type="text" id="tsec" value="300" style="width:80px"><span class="dim">seg</span>
+      <button data-t="start">Iniciar</button><button data-t="pause">Pausar</button><button data-t="resume">Retomar</button><button data-t="cancel">Cancelar</button></div>
+  </section>
+</div>
+<script>
+const BASE = new URLSearchParams(location.search).get('bridge') || 'http://127.0.0.1:8787'
+const $ = (id) => document.getElementById(id)
+const el = (tag, cls, text) => { const e = document.createElement(tag); if (cls) e.className = cls; if (text != null) e.textContent = text; return e }
+async function api(method, path, body) {
+  const r = await fetch(`${BASE}/api/command/${path}`, { method, headers: body ? { 'content-type': 'application/json' } : {}, body: body ? JSON.stringify(body) : undefined })
+  const j = await r.json().catch(() => ({}))
+  if (!r.ok) throw new Error(j.error || j.message || `HTTP ${r.status}`)
+  return j
+}
+const pill = (state) => el('span', `pill ${state}`, state)
+const msg = (e) => { $('err').textContent = e ? String(e.message || e) : '' }
+
+function renderProviders(list) {
+  const box = $('providers'); box.replaceChildren()
+  for (const p of list) {
+    const d = el('div'); const head = el('div', 'row')
+    head.append(el('b', '', p.label), el('span', 'dim', `${p.type}${p.external ? ' · externo' : ' · local'}${p.enabled ? '' : ' · desligado'}`))
+    d.append(head)
+    const s = p.status
+    if (s) {
+      const r = el('div', 'row')
+      for (const k of ['endpoint', 'auth', 'model', 'inference']) { const x = el('span', 'dim', k + ' '); x.append(pill(s[k].state)); r.append(x) }
+      d.append(r)
+    }
+    const row = el('div', 'row'); const b = el('button', '', 'Checar'); b.onclick = () => check(p.id); row.append(b)
+    if (p.recentErrors?.[0]) row.append(el('span', 'dim', `último erro: ${p.recentErrors[0].kind}`))
+    d.append(row); box.append(d)
+  }
+}
+function renderServices(list) {
+  const box = $('services'); box.replaceChildren()
+  for (const s of list) {
+    const r = el('div', 'row'); r.append(pill(s.status), el('b', '', s.name), el('span', 'dim', s.lastLatencyMs != null ? `${s.lastLatencyMs} ms` : 'não checado'))
+    const b = el('button', '', '↻'); b.onclick = async () => { try { await api('POST', 'services/check', { id: s.id }); load() } catch (e) { msg(e) } }
+    r.append(b); if (s.lastError) r.append(el('span', 'dim', s.lastError)); box.append(r)
+  }
+}
+function renderProjects(list) {
+  const box = $('projects'); box.replaceChildren()
+  for (const p of list) { const r = el('div', 'row'); r.append(pill(p.state), el('b', '', p.name), el('span', 'dim', p.checks.map((c) => `${c.type}:${c.ok ? 'ok' : c.unknown ? '?' : 'falha'}`).join(' ') || p.detail)); box.append(r) }
+}
+function renderTasks(list) {
+  const box = $('tasks'); box.replaceChildren()
+  if (!list.length) box.append(el('div', 'dim', 'nenhuma tarefa'))
+  for (const t of list) {
+    const r = el('div', 'row'); r.append(el('span', 'dim', t.priority), el('span', '', t.title))
+    const sel = el('select'); for (const s of ['todo', 'doing', 'blocked', 'done', 'cancelled']) { const o = el('option', '', s); o.selected = s === t.state; sel.append(o) }
+    sel.onchange = async () => { try { await api('POST', 'tasks/update', { id: t.id, state: sel.value }); load() } catch (e) { msg(e) } }
+    const del = el('button', '', '✕'); del.onclick = async () => { if (!confirm(`Apagar "${t.title}"?`)) return; try { await api('POST', 'tasks/delete', { id: t.id, confirm: true }); load() } catch (e) { msg(e) } }
+    r.append(sel, del); box.append(r)
+  }
+}
+function renderTimer(t) {
+  const s = Math.ceil(t.remainingMs / 1000)
+  $('timer').textContent = t.status === 'idle' ? 'parado' : `${t.status} · ${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}${t.label ? ' · ' + t.label : ''}`
+}
+async function check(id) { try { await api('POST', 'ai/check', { providerId: id }); load() } catch (e) { msg(e) } }
+async function load() {
+  try { const o = await api('GET', 'overview'); renderProviders(o.providers); renderServices(o.services); renderProjects(o.projects); renderTasks(o.tasks); renderTimer(o.timer); msg() }
+  catch (e) { msg(`Bridge inacessível em ${BASE} (${e.message}). Rode "npm start" e abra esta página por http://localhost:5173/command.html`) }
+}
+$('ask').onclick = async () => {
+  const out = $('answer'); out.textContent = '…'
+  try {
+    const r = await api('POST', 'ai/ask', { prompt: $('prompt').value, sensitive: $('sensitive').checked, confirm: $('spend').checked })
+    const via = r.routing?.choice ? ` · triagem: ${r.routing.choice}` : ''
+    out.textContent = `${r.text}\n\n— ${r.provider} / ${r.model} · ${r.latencyMs} ms${via}`
+  } catch (e) { out.textContent = `Falhou: ${e.message}` }
+}
+$('tadd').onclick = async () => { if (!$('ttitle').value.trim()) return; try { await api('POST', 'tasks', { title: $('ttitle').value, priority: $('tprio').value }); $('ttitle').value = ''; load() } catch (e) { msg(e) } }
+for (const b of document.querySelectorAll('[data-t]')) b.onclick = async () => { try { await api('POST', `timer/${b.dataset.t}`, b.dataset.t === 'start' ? { seconds: Number($('tsec').value) } : {}); load() } catch (e) { msg(e) } }
+load(); setInterval(load, 15000)
+</script>
+</body>
+</html>

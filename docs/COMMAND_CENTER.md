@@ -64,6 +64,26 @@ route still answers and `routing` reports why. Endpoints: `POST
 Whether it beats just sending everything to one model must be measured on your
 own prompts before it goes into the main flow.
 
+## Verified on the author's PC (Windows 10, 2026-10-09)
+
+- `npm install`, `npm run build` and `npm run test:command` (31/31) pass; lint
+  shows only the two warnings that already existed in the base.
+- The local AI project (`G:\NOVA IA DO UMBRA`) runs llama-server in three places:
+  **8080** Node chat + C.R.I.S panel, **8081** heavy router (`modos.ini`, one mode
+  loaded at a time, ~13 GB RAM), **8082** light model `0-leve-conversa`
+  (Qwen3.5-4B, ~3 GB). The config uses the light one by default; the heavy one is
+  in `command.config.json` but `enabled: false`, because with 16 GB RAM it cannot
+  coexist with a browser and loading a mode takes up to ~2 min.
+- Real run through the router: `ai/check` on `local-leve` gave endpoint ok, model
+  ok, auth `unknown` (keyless server); `ai/infer` and `ai/ask` returned real
+  answers in ~1.3 s. Service checks against `:8082` and the bridge report `up`.
+- Browser panel: `http://localhost:5173/command.html` (served by Vite, talks to
+  the bridge on `:8787`). The page script passes a syntax check and its API calls
+  were exercised with curl-style requests incl. CORS; it was **not** visually
+  inspected in a browser (headless screenshot failed on this machine).
+- Still never called: Jev, Claude API (no keys supplied), the heavy model, the
+  Umbra RPG AI, the notes site.
+
 ## Module status
 
 | Module | State |
