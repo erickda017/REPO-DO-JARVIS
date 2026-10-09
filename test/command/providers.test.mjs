@@ -130,3 +130,13 @@ test('router: all providers down -> RouteError, never a fake answer', async () =
   const { router } = stack(() => new Error('ECONNREFUSED'))
   await assert.rejects(router.run({ prompt: 'hi', confirmSpend: true }), (e) => e instanceof RouteError && /all eligible providers failed/.test(e.message))
 })
+
+test('openai-compat: keyless llama-server style reply is accepted, auth reported as unknown not ok', async () => {
+  const f = fakeFetch(() => ({ body: { object: 'list', data: [{ id: 'qwen-local', object: 'model' }] } }))
+  const r = await openaiCompatProvider({ id: 'local', baseUrl: 'http://127.0.0.1:8080/v1' }, { fetch: f, env: {} }).probe()
+  assert.deepEqual(r.models, ['qwen-local'])
+  assert.equal(r.auth.state, 'unknown')
+  assert.equal(f.calls[0].headers.authorization, undefined)
+  const out = await openaiCompatProvider({ id: 'local', baseUrl: 'http://127.0.0.1:8080/v1' }, { fetch: fakeFetch(() => ({ body: { model: 'qwen-local', choices: [{ message: { content: 'oi' } }] } })), env: {} }).infer({ model: 'qwen-local', prompt: 'x' })
+  assert.equal(out.text, 'oi')
+})

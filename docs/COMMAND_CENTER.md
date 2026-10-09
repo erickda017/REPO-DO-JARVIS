@@ -41,7 +41,7 @@ choices and unverified by me; `probeUrl` is an unused import in the base.
 - Config in `command.config.json` (see `command.config.example.json`): API keys
   are referenced by *env var name*, never stored.
 
-Run the tests: `npm run test:command` (30 tests, fake `fetch`, no network).
+Run the tests: `npm run test:command` (31 tests, fake `fetch`, no network).
 
 ## Jev is a decision layer, not the maestro
 
@@ -76,7 +76,7 @@ own prompts before it goes into the main flow.
 | Tasks, timer | Done (backend + voice tools). No UI panel yet |
 | Audit log | Done |
 | Jev (TypeSafe System One) adapter + `decide()` + `smartRun()` triage | Done, unit-tested against the **public OpenAPI contract**; **not called for real** (no key, no paid test yet) |
-| **Local LLM app** | **Blocked** — placeholder; needs inspection of the app's code |
+| Local LLM (`agente-codigo`'s llama-server) | Configured as `openai-compat` from evidence in the other session's code; **port and model id unverified**, never run |
 | Notes-site integration | Not started; needs the app inspected first |
 | Maestro (multi-step planner delegating across models) | Not built. Jev cannot be one (see below); the maestro stays Claude, which already plans and calls tools |
 | Frontend panels in the JARVIS HUD | Not started; do after the first local run so it can be seen |
@@ -89,9 +89,14 @@ own prompts before it goes into the main flow.
    the model name with `GET /v1/models` (`jev-latest` is only the docs example).
    The advertised price (US$ 0.042 per million input tokens) comes from a
    third-party summary and was not verified against the official page.
-2. **Local LLM app**: how it receives requests (HTTP route? port? OpenAI-style?).
-   If it exposes `/v1/models` + `/v1/chat/completions`, change its config type to
-   `openai-compat` and set `baseUrl`.
+2. **Local LLM**: the other project's gateway (`agente-codigo/lib/gateway.js`)
+   registers the local model as a `llama-server` reached at
+   `${LOCAL_AI_ENDPOINT}/chat/completions`, no API key. Read the real
+   `LOCAL_AI_ENDPOINT` / `LOCAL_AI_MODEL` from its `.env` and put them in
+   `command.config.json` (`local-llm`). That project already has its own
+   multi-account gateway; JARVIS only needs to *monitor and call* the
+   llama-server, not duplicate that gateway. The separate Umbra RPG AI has not
+   been looked at.
 3. List of projects with ports / health URLs for `services` and `projects`.
 4. A first controlled, paid test only after the target and cost are confirmed.
 

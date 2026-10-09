@@ -24,9 +24,14 @@
     },
     {
       "id": "local-llm",
-      "type": "unverified",
-      "label": "Local LLM app",
-      "note": "inspect the app first; if it exposes an OpenAI-style API switch type to openai-compat",
+      "type": "openai-compat",
+      "label": "Local llama-server (agente-codigo)",
+      "note": "baseUrl/port are a guess (llama-server default). Check the LOCAL_AI_ENDPOINT value in the agente-codigo .env and edit.",
+      "baseUrl": "http://127.0.0.1:8080/v1",
+      "models": ["REPLACE_WITH_THE_ID_FROM_GET_/v1/models"],
+      "capabilities": ["chat", "coding"],
+      "priority": 50,
+      "paid": false,
       "enabled": false
     }
   ],
