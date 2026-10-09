@@ -41,7 +41,28 @@ choices and unverified by me; `probeUrl` is an unused import in the base.
 - Config in `command.config.json` (see `command.config.example.json`): API keys
   are referenced by *env var name*, never stored.
 
-Run the tests: `npm run test:command` (19 tests, fake `fetch`, no network).
+Run the tests: `npm run test:command` (30 tests, fake `fetch`, no network).
+
+## Jev is a decision layer, not the maestro
+
+Verified from `https://api.typesafe.ai/openapi.json` (v0.2.0): `GET /v1/models`
+and `POST /v1/systemone`, Bearer auth. You send `state` (content) and named
+`questions` of type `noul` (yes/no probability), `choice` or `score`; it returns
+probabilities and a confidence. It does not generate text, plan, or call tools.
+So the design is:
+
+```
+request -> router.smartRun -> Jev classifies (choice: chat | coding | ...)
+                           -> the matching generator (Claude, local LLM) answers
+```
+
+The decision is advisory. It is skipped when spend is not confirmed, when fewer
+than two generator capabilities exist, when the prompt is marked `sensitive`
+(Jev is external), or when confidence is below 0.6. If Jev fails, the default
+route still answers and `routing` reports why. Endpoints: `POST
+/api/command/ai/decide` and `POST /api/command/ai/ask` (both need `confirm`).
+Whether it beats just sending everything to one model must be measured on your
+own prompts before it goes into the main flow.
 
 ## Module status
 
@@ -54,17 +75,20 @@ Run the tests: `npm run test:command` (19 tests, fake `fetch`, no network).
 | Service + project monitor | Done (backend). No UI panel yet |
 | Tasks, timer | Done (backend + voice tools). No UI panel yet |
 | Audit log | Done |
-| **Jev AI** | **Blocked** — placeholder only (`type: unverified`, never calls out) |
+| Jev (TypeSafe System One) adapter + `decide()` + `smartRun()` triage | Done, unit-tested against the **public OpenAPI contract**; **not called for real** (no key, no paid test yet) |
 | **Local LLM app** | **Blocked** — placeholder; needs inspection of the app's code |
 | Notes-site integration | Not started; needs the app inspected first |
-| Maestro (planner that delegates across models) | Not built; depends on Jev's real capabilities |
+| Maestro (multi-step planner delegating across models) | Not built. Jev cannot be one (see below); the maestro stays Claude, which already plans and calls tools |
 | Frontend panels in the JARVIS HUD | Not started; do after the first local run so it can be seen |
 | Windows 10 run, voice, full original-feature regression | Not verified |
 
 ## Needed from the local machine / the author
 
-1. **Jev AI**: exact name, repo URL, base URL, auth header, request/response
-   example, pricing. Until then it stays isolated.
+1. **Jev**: a `TYPESAFE_API_KEY` in your environment and one controlled paid
+   test (`POST /api/command/ai/check` with `inference`, or `ai/decide`). Confirm
+   the model name with `GET /v1/models` (`jev-latest` is only the docs example).
+   The advertised price (US$ 0.042 per million input tokens) comes from a
+   third-party summary and was not verified against the official page.
 2. **Local LLM app**: how it receives requests (HTTP route? port? OpenAI-style?).
    If it exposes `/v1/models` + `/v1/chat/completions`, change its config type to
    `openai-compat` and set `baseUrl`.

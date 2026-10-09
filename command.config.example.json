@@ -13,10 +13,13 @@
       "enabled": false
     },
     {
-      "id": "jev-ai",
-      "type": "unverified",
-      "label": "Jev AI (maestro candidate)",
-      "note": "identity, endpoint, auth and request format not confirmed yet",
+      "id": "jev",
+      "type": "typesafe-jev",
+      "label": "TypeSafe Jev (decision model, not a text generator)",
+      "apiKeyEnv": "TYPESAFE_API_KEY",
+      "models": ["jev-latest"],
+      "capabilities": ["decision"],
+      "priority": 5,
       "enabled": false
     },
     {

@@ -68,6 +68,23 @@ export function createApi({ health, router, services, projects, tasks, timer, au
         confirmSpend: b.confirm === true,
         maxTokens: Number.isInteger(b.maxTokens) ? Math.min(b.maxTokens, 4096) : undefined,
       }),
+    'POST ai/decide': async (b) =>
+      router.decide({
+        state: b.state,
+        questions: b.questions,
+        providerId: typeof b.providerId === 'string' ? b.providerId : undefined,
+        model: typeof b.model === 'string' ? b.model : undefined,
+        sensitive: b.sensitive === true,
+        confirmSpend: b.confirm === true,
+      }),
+    'POST ai/ask': async (b) =>
+      router.smartRun({
+        prompt: b.prompt,
+        system: typeof b.system === 'string' ? b.system : undefined,
+        sensitive: b.sensitive === true,
+        confirmSpend: b.confirm === true,
+        maxTokens: Number.isInteger(b.maxTokens) ? Math.min(b.maxTokens, 4096) : undefined,
+      }),
     'GET services': async () => services.list(),
     'POST services/check': async (b) => {
       if (typeof b.id !== 'string' || !services.has(b.id)) throw new HttpError(404, 'unknown service')

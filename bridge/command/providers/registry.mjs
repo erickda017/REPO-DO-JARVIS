@@ -2,11 +2,13 @@ import { ProviderError } from '../errors.mjs'
 import { anthropicProvider } from './anthropic.mjs'
 import { openaiCompatProvider } from './openaiCompat.mjs'
 import { unverifiedProvider } from './unverified.mjs'
+import { jevProvider } from './jev.mjs'
 
 const FACTORIES = {
   anthropic: anthropicProvider,
   'openai-compat': openaiCompatProvider,
   unverified: unverifiedProvider,
+  'typesafe-jev': jevProvider,
 }
 
 const LOOPBACK = new Set(['localhost', '127.0.0.1', '[::1]', '::1'])
