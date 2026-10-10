@@ -4,6 +4,7 @@ import { execFileSync } from 'node:child_process'
 import { readFileSync } from 'node:fs'
 import { scanProject, type ProjectGraph } from './projects.ts'
 import { watchSession } from './transcripts.ts'
+import { iaStart, iaStatus, iaStop, iaValid, type IaMode } from './ia.ts'
 import { spawn, type ChildProcess } from 'node:child_process'
 import { appendFileSync, copyFileSync, createReadStream, existsSync, mkdirSync, statSync, writeFileSync } from 'node:fs'
 import http from 'node:http'
@@ -108,6 +109,14 @@ const agentPath = (): string | null => {
 const nodeBin = () => { try { return execFileSync('where.exe', ['node'], { encoding: 'utf8' }).split(/\r?\n/)[0].trim() || process.execPath } catch { return process.execPath } }
 const claudeFound = () => { try { execFileSync('where.exe', ['claude'], { stdio: 'ignore' }); return true } catch { return false } }
 
+/** Where the local AI lives: the owner's saved choice, else the copy inside this repo, else the old default location. */
+const iaRoot = (): string | null => {
+  const saved = readJson<{ root?: string }>(userFile('ia.json'), {}).root
+  for (const c of [saved, join(ROOT, 'ia-local'), 'G:/JARIVS/ia-local']) if (c && iaValid(c)) return c
+  return null
+}
+const IA_MODES = new Set<IaMode>(['leve', 'so-ia', 'so-cris', 'completo'])
+
 function registerIpc(getWin: () => BrowserWindow | null) {
   const send = (ch: string, ...a: unknown[]) => getWin()?.webContents.send(ch, ...a)
 
@@ -122,6 +131,14 @@ function registerIpc(getWin: () => BrowserWindow | null) {
   ipcMain.handle('projects:remove', (_e, root: string) => { writeJson(userFile('projects.json'), projectRoots().filter((r) => r !== root)); scans.delete(root); return true })
   ipcMain.handle('projects:rescan', (_e, root: string) => (projectRoots().includes(root) ? scanSafe(root) : null))
 
+  ipcMain.handle('ia:status', () => iaStatus(iaRoot()))
+  ipcMain.handle('ia:start', (_e, mode: IaMode) => (IA_MODES.has(mode) ? iaStart(iaRoot(), mode, join(app.getPath('userData'), 'ia-logs')) : iaStatus(iaRoot())))
+  ipcMain.handle('ia:stop', () => iaStop(iaRoot()))
+  ipcMain.handle('ia:setRoot', async () => {
+    const r = await dialog.showOpenDialog(getWin()!, { properties: ['openDirectory'], title: 'Escolha a pasta da IA local (a que tem llama/llama-server.exe)' })
+    if (!r.canceled && r.filePaths[0] && iaValid(r.filePaths[0])) writeJson(userFile('ia.json'), { root: r.filePaths[0] })
+    return iaStatus(iaRoot())
+  })
   ipcMain.handle('code:engines', () => ({ claude: claudeFound(), agent: agentPath(), shell: true }))
   ipcMain.handle('code:setAgentPath', async () => {
     const r = await dialog.showOpenDialog(getWin()!, { properties: ['openFile'], filters: [{ name: 'Agente (.js, .bat, .cmd)', extensions: ['js', 'bat', 'cmd'] }], title: 'Escolha o arquivo que inicia o seu agente' })

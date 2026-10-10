@@ -27,7 +27,7 @@ export function CommandBar({ large = false }: { large?: boolean }) {
           {opt(speak, 'speak', 'Falar a resposta em voz alta', Volume2)}
         </div>
         <textarea
-          rows={1}
+          rows={large ? 2 : 3}
           value={text}
           placeholder="Fale com o JARVIS…"
           aria-label="Mensagem para o JARVIS"

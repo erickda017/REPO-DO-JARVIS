@@ -90,8 +90,13 @@ export async function speakViaBridge(text: string): Promise<boolean> {
   try {
     const r = await fetch(`${BASE}/tts`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ text }) })
     if (!r.ok) return false
-    void new Audio(URL.createObjectURL(await r.blob())).play()
-    return true
+    const audio = new Audio(URL.createObjectURL(await r.blob()))
+    // Resolves when the voice has FINISHED, so the caption can disappear exactly then.
+    return await new Promise<boolean>((resolve) => {
+      audio.onended = () => resolve(true)
+      audio.onerror = () => resolve(false)
+      audio.play().catch(() => resolve(false))
+    })
   } catch {
     return false
   }

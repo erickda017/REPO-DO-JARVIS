@@ -312,3 +312,43 @@ input, select { border-radius: var(--r-sm); }
 .term { position: relative; min-height: 0; }
 .term .xterm, .term .xterm-screen { height: 100%; }
 .code-side { min-height: 0; }
+
+/* Round 4: calmer scene labels */
+.node-label span { font-size: 10px; letter-spacing: 0.1em; opacity: 0.78; font-weight: 500; }
+.node-label small { display: block; font: 400 10px var(--body); color: var(--dim); opacity: 0.7; }
+
+/* Round 4: collapsible sidebar, subtitle, taller/lower command box */
+.app { transition: grid-template-columns 0.28s var(--ease); }
+.app[data-collapsed='true'] { grid-template-columns: 64px 1fr; }
+.app[data-collapsed='true'] .nav-item span { display: none; }
+.app[data-collapsed='true'] .nav-item { justify-content: center; padding: 11px 0; }
+.app[data-collapsed='true'] .sidebar { padding: 18px 8px; }
+.topbar-left { display: flex; align-items: center; gap: 12px; }
+.nodrag { -webkit-app-region: no-drag; }
+.nav-item { white-space: nowrap; overflow: hidden; }
+.caption-wrap { position: absolute; left: 50%; bottom: 196px; transform: translateX(-50%); width: min(780px, calc(100% - 80px)); z-index: 5; pointer-events: none; text-align: center; }
+.caption { margin: 0; font-size: 20px; line-height: 1.55; color: var(--text); text-shadow: 0 2px 14px rgba(0, 0, 0, 0.9), 0 0 3px rgba(0, 0, 0, 0.9); }
+.home-command { bottom: 20px; width: min(740px, calc(100% - 64px)); }
+.home-command .command { flex-direction: column-reverse; }
+.command-row { border-radius: 30px; align-items: flex-end; min-height: 104px; padding: 12px 12px 12px 14px; }
+.command-row .opts { flex-direction: column; border-right: 0; padding-right: 0; align-self: center; gap: 0; }
+.command-row textarea { min-height: 76px; max-height: 190px; line-height: 1.5; align-self: stretch; }
+.command-row .send { align-self: flex-end; }
+.page.chat .command-row { min-height: 84px; }
+.page.chat .command-row .opts { flex-direction: row; }
+.legend { bottom: 20px; }
+.home-command .command, .page.chat .command { align-items: stretch; }
+.command-row { width: 100%; }
+
+/* IA local view + command box layout v2 */
+.modes { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 12px; margin-top: 10px; }
+.mode { text-align: left; display: flex; flex-direction: column; gap: 6px; padding: 14px 16px; background: var(--panel); border: 1px solid rgba(92,214,255,.18); border-radius: var(--r-md); cursor: pointer; color: var(--text); transition: all .2s var(--ease); }
+.mode b { display: flex; align-items: center; gap: 8px; font: 600 14px var(--display); letter-spacing: .04em; }
+.mode span { color: var(--dim); font-size: 13px; }
+.mode:hover:not(:disabled) { border-color: var(--cyan); background: rgba(79,216,255,.08); }
+.mode:disabled { opacity: .5; cursor: default; }
+.command-row { display: grid; grid-template-columns: 1fr auto; grid-template-areas: 'text text' 'opts send'; align-items: center; gap: 4px 8px; }
+.command-row textarea { grid-area: text; min-height: 62px; }
+.command-row .opts { grid-area: opts; flex-direction: row; align-self: center; }
+.command-row .send { grid-area: send; align-self: center; }
+.legend { left: auto; right: 20px; width: 230px; text-align: right; bottom: 20px; }

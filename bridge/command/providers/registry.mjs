@@ -53,7 +53,9 @@ export function createRegistry(providerConfigs = [], deps = {}) {
       capabilities: cfg.capabilities ?? ['chat'],
       external: isExternal(cfg),
       allowSensitive: cfg.allowSensitive === true,
-      paid: cfg.paid !== false,
+      // Anything that leaves this machine is paid until the config says otherwise; loopback servers (the local model) are free.
+      // A server on this very machine cannot bill anyone, so it is never "paid", whatever an old config says.
+      paid: isExternal(cfg) ? (typeof cfg.paid === 'boolean' ? cfg.paid : true) : false,
       allowFallback: cfg.allowFallback !== false,
       warning: cfg.configWarning ?? null,
       keyEnv: cfg.apiKeyEnv ?? (cfg.type === 'anthropic' ? 'ANTHROPIC_API_KEY' : cfg.type === 'gemini' ? 'GEMINI_API_KEY' : cfg.type === 'typesafe-jev' ? 'TYPESAFE_API_KEY' : null),

@@ -292,3 +292,25 @@ test('config: a real key pasted into apiKeyEnv is dropped, never echoed, and fla
   assert.equal(registry.get('jev').keyEnv, 'TYPESAFE_API_KEY')
   assert.ok(registry.get('jev').warning)
 })
+
+test('spend gate: without authorisation a paid provider is skipped and the free local one answers; catalogue adds all vendors', async () => {
+  const f = fakeFetch((u) => (u.includes('openai.test') ? { body: { choices: [{ message: { content: 'PAID' } }] } } : { body: { choices: [{ message: { content: 'local ok' } }], model: 'q' } }))
+  const registry = createRegistry(
+    [
+      { id: 'paid', type: 'openai-compat', baseUrl: 'http://openai.test/v1', models: ['m'], priority: 1 },
+      { id: 'local', type: 'openai-compat', baseUrl: 'http://127.0.0.1:8082/v1', models: ['q'], priority: 9 }, // no "paid" flag: loopback is free by default
+    ],
+    { fetch: f, env: {} },
+  )
+  assert.equal(registry.get('local').paid, false)
+  assert.equal(createRegistry([{ id: 'x', type: 'openai-compat', baseUrl: 'http://127.0.0.1:1/v1', paid: true }], { env: {} }).get('x').paid, false, 'loopback is never paid even if the config says so')
+  assert.equal(registry.get('paid').paid, true)
+  const router = createRouter({ registry })
+  const out = await router.run({ prompt: 'oi' }) // confirmSpend NOT given
+  assert.equal(out.text, 'local ok')
+  assert.ok(!f.calls.some((c) => c.url.includes('openai.test')), 'the paid provider must not be called')
+  const { withCatalog } = await import('../../bridge/command/catalog.mjs')
+  const ids = withCatalog([{ id: 'local', type: 'openai-compat' }]).map((p) => p.id)
+  for (const want of ['claude-api', 'gemini', 'openai', 'deepseek', 'openrouter', 'groq', 'mistral']) assert.ok(ids.includes(want), want)
+  assert.ok(withCatalog([]).every((p) => p.enabled === false && p.models.length === 0))
+})

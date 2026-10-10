@@ -1,12 +1,14 @@
 import { useEffect } from 'react'
-import { Activity, Cpu, FolderGit2, MessageSquare, Mic, Network, Terminal } from 'lucide-react'
+import { Activity, Cpu, FolderGit2, Power, MessageSquare, Mic, Network, PanelLeftClose, PanelLeftOpen, Terminal } from 'lucide-react'
 import { useApp, type View } from './store.ts'
 import { NeuralScene } from './neural/Scene.tsx'
 import { FloatingLayer } from './ui/Floating.tsx'
 import { CommandBar } from './ui/CommandBar.tsx'
 import { Particles } from './ui/Particles.tsx'
+import { Caption } from './ui/Caption.tsx'
 import { CodeView } from './ui/CodeView.tsx'
 import { ProjectsView } from './ui/ProjectsView.tsx'
+import { IaView } from './ui/IaView.tsx'
 import { AisView, ChatView, SystemView, VoiceView } from './ui/Views.tsx'
 
 const NAV: { id: View; label: string; icon: typeof Network }[] = [
@@ -14,6 +16,7 @@ const NAV: { id: View; label: string; icon: typeof Network }[] = [
   { id: 'chat', label: 'Conversa', icon: MessageSquare },
   { id: 'code', label: 'Programar', icon: Terminal },
   { id: 'projects', label: 'Projetos', icon: FolderGit2 },
+  { id: 'ia', label: 'IA local', icon: Power },
   { id: 'ais', label: 'IAs', icon: Cpu },
   { id: 'system', label: 'Sistema', icon: Activity },
   { id: 'voice', label: 'Voz', icon: Mic },
@@ -41,6 +44,7 @@ function Home() {
     <div className="home">
       <div className="scene"><NeuralScene /></div>
       <FloatingLayer />
+      <Caption />
       <p className="legend">Nós grandes = entidades reais, com pulso a cada pedido · a nuvem de neurônios é só metáfora visual · cada pasta autorizada forma a sua própria rede</p>
       <div className="home-command"><CommandBar /></div>
     </div>
@@ -48,7 +52,7 @@ function Home() {
 }
 
 export function App() {
-  const { view, setView, bridgeOk, refresh, pollAudit, probe, loadProjects } = useApp()
+  const { view, setView, bridgeOk, refresh, pollAudit, probe, loadProjects, collapsed, toggleSidebar } = useApp()
   useEffect(() => {
     void refresh().then(probe)
     void pollAudit()
@@ -60,10 +64,15 @@ export function App() {
   }, [refresh, pollAudit, probe, loadProjects])
 
   return (
-    <div className="app">
+    <div className="app" data-collapsed={collapsed}>
       <Particles />
       <header className="topbar">
-        <div className="wordmark"><span className="core-dot" aria-hidden />J.A.R.V.I.S</div>
+        <div className="topbar-left">
+          <button className="icon-btn nodrag" onClick={toggleSidebar} aria-label={collapsed ? 'Abrir menu lateral' : 'Fechar menu lateral'} aria-expanded={!collapsed} title={collapsed ? 'Abrir menu' : 'Fechar menu'}>
+            {collapsed ? <PanelLeftOpen size={17} /> : <PanelLeftClose size={17} />}
+          </button>
+          <div className="wordmark"><span className="core-dot" aria-hidden />J.A.R.V.I.S</div>
+        </div>
         <div className="topbar-right">
           <Stats />
           <div className="conn" data-ok={bridgeOk}><span className="dot" data-tone={bridgeOk ? 'ok' : 'bad'} aria-hidden />{bridgeOk ? 'Bridge conectado' : 'Bridge desconectado'}</div>
@@ -71,7 +80,7 @@ export function App() {
       </header>
       <nav className="sidebar" aria-label="Navegação">
         {NAV.map(({ id, label, icon: Icon }) => (
-          <button key={id} className="nav-item" aria-current={view === id ? 'page' : undefined} onClick={() => setView(id)}>
+          <button key={id} className="nav-item" title={label} aria-label={label} aria-current={view === id ? 'page' : undefined} onClick={() => setView(id)}>
             <Icon size={18} strokeWidth={1.6} /> <span>{label}</span>
           </button>
         ))}
@@ -81,6 +90,7 @@ export function App() {
         {view === 'chat' && <ChatView />}
         {view === 'code' && <CodeView />}
         {view === 'projects' && <ProjectsView />}
+        {view === 'ia' && <IaView />}
         {view === 'ais' && <AisView />}
         {view === 'system' && <SystemView />}
         {view === 'voice' && <VoiceView />}

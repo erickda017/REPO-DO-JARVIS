@@ -62,8 +62,8 @@ function ProjectCloud({ g, index, total }: { g: ProjectGraph; index: number; tot
     const cc = lineGeo.getAttribute('color') as THREE.BufferAttribute
     g.edges.forEach(([a, b, kind], k) => {
       const v = Math.max(f[a], f[b])
-      if (kind === 'tree') col.setRGB(0.05, 0.2, 0.28)
-      else col.setRGB(0.18, 0.62, 0.72)
+      if (kind === 'tree') col.setRGB(0.025, 0.09, 0.13)
+      else col.setRGB(0.07, 0.26, 0.32)
       col.multiplyScalar(1 + v * 3)
       cc.setXYZ(k * 2, col.r, col.g, col.b)
       cc.setXYZ(k * 2 + 1, col.r, col.g, col.b)
@@ -77,7 +77,7 @@ function ProjectCloud({ g, index, total }: { g: ProjectGraph; index: number; tot
         <meshBasicMaterial toneMapped={false} />
       </instancedMesh>
       <lineSegments geometry={lineGeo}>
-        <lineBasicMaterial vertexColors toneMapped={false} transparent opacity={0.9} />
+        <lineBasicMaterial vertexColors toneMapped={false} transparent opacity={0.5} />
       </lineSegments>
       <Html center position={[0, 2.7, 0]} style={{ pointerEvents: 'none' }} zIndexRange={[10, 0]}>
         <div className="node-label"><span>{g.name.toUpperCase()}</span><small>{g.git?.branch ? ` · ${g.git.branch}` : ''}{` · ${n} itens`}{g.truncated ? '+' : ''}</small></div>
@@ -97,7 +97,7 @@ function Projects() {
   }, [projects])
   return (
     <>
-      <lineSegments geometry={links}><lineBasicMaterial color={[0.05, 0.3, 0.4]} toneMapped={false} transparent opacity={0.6} /></lineSegments>
+      <lineSegments geometry={links}><lineBasicMaterial color={[0.03, 0.14, 0.2]} toneMapped={false} transparent opacity={0.4} /></lineSegments>
       {projects.map((g, i) => <ProjectCloud key={g.root} g={g} index={i} total={projects.length} />)}
     </>
   )
@@ -154,13 +154,13 @@ function World() {
     const c = new THREE.Color()
     for (const n of nodes) {
       if (n.id === 'core') continue
-      c.set(TONE_COLOR[n.tone]).multiplyScalar(n.tone === 'off' ? 0.35 : 0.9)
+      c.set(TONE_COLOR[n.tone]).multiplyScalar(n.tone === 'off' ? 0.18 : 0.5)
       pts.push(0, 0, 0, n.pos.x, n.pos.y, n.pos.z)
       colors.push(c.r, c.g, c.b, c.r, c.g, c.b)
       for (const i of links.get(n.id) ?? []) {
         const p = cloud.points[i]
         pts.push(n.pos.x, n.pos.y, n.pos.z, p.x, p.y, p.z)
-        colors.push(c.r * 0.5, c.g * 0.5, c.b * 0.5, c.r * 0.5, c.g * 0.5, c.b * 0.5)
+        colors.push(c.r * 0.22, c.g * 0.22, c.b * 0.22, c.r * 0.22, c.g * 0.22, c.b * 0.22)
       }
     }
     const g = new THREE.BufferGeometry()
@@ -221,7 +221,7 @@ function World() {
     const col = lineGeo.getAttribute('color') as THREE.BufferAttribute
     cloud.edges.forEach(([i, j], k) => {
       const v = Math.max(activity.a[i], activity.a[j])
-      color.copy(BASE).multiplyScalar(0.5).lerp(HOT, Math.min(v, 1)).multiplyScalar(1 + v * 1.4)
+      color.copy(BASE).multiplyScalar(0.2).lerp(HOT, Math.min(v, 1)).multiplyScalar(1 + v * 1.4)
       col.setXYZ(k * 2, color.r, color.g, color.b)
       col.setXYZ(k * 2 + 1, color.r, color.g, color.b)
     })
@@ -243,10 +243,10 @@ function World() {
         <meshBasicMaterial toneMapped={false} />
       </instancedMesh>
       <lineSegments ref={lines} geometry={lineGeo}>
-        <lineBasicMaterial vertexColors toneMapped={false} transparent opacity={0.85} />
+        <lineBasicMaterial vertexColors toneMapped={false} transparent opacity={0.45} />
       </lineSegments>
       <lineSegments geometry={linkGeo}>
-        <lineBasicMaterial vertexColors toneMapped={false} transparent opacity={0.9} />
+        <lineBasicMaterial vertexColors toneMapped={false} transparent opacity={0.6} />
       </lineSegments>
 
       {nodes.map((n) => (

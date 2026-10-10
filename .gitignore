@@ -36,3 +36,6 @@ dist-electron
 .impeccable/review/
 
 release/
+
+# The local AI (models, llama.cpp, C.R.I.S, own agent): private, huge, holds secrets. Integrated at runtime, not versioned here.
+ia-local/

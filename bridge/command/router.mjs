@@ -22,6 +22,21 @@ export function createRouter({ registry, health, audit, clock = Date.now, cooldo
   // An empty account will not refill in a minute: keep it out of rotation for 10 min, so traffic flows to the next provider.
   const coolFor = (e) => (e.kind === 'quota' ? 10 * 60_000 : cooldownMs)
 
+  /**
+   * Paid providers are simply left out of a request the owner has not authorised to spend money on, so a local model
+   * keeps answering for free. Only when NOTHING free is left does the call stop with the "not confirmed" error.
+   */
+  const spendFilter = (list, req, attempts) => {
+    if (req.confirmSpend) return list
+    const free = list.filter((p) => !p.paid)
+    for (const p of list.filter((x) => x.paid)) attempts.push({ provider: p.id, skipped: 'paid provider: needs "autorizo gasto"' })
+    if (free.length === 0) {
+      audit?.record('ai.route.blocked', { providers: list.map((p) => p.id), reason: 'spend-not-confirmed' })
+      throw new RouteError('blocked: this call spends tokens and was not confirmed', attempts)
+    }
+    return free
+  }
+
   const eligible = (req) => {
     const out = []
     const skipped = []
@@ -62,13 +77,9 @@ export function createRouter({ registry, health, audit, clock = Date.now, cooldo
       audit?.record('ai.route.none', { capability: req.capability, sensitive: req.sensitive, skipped })
       throw new RouteError('no eligible provider for this request', attempts)
     }
+    const usable = spendFilter(list, req, attempts)
 
-    for (const p of list) {
-      if (p.paid && !req.confirmSpend) {
-        attempts.push({ provider: p.id, skipped: 'paid provider: confirmSpend required' })
-        audit?.record('ai.route.blocked', { provider: p.id, reason: 'spend-not-confirmed' })
-        throw new RouteError('blocked: this call spends tokens and was not confirmed', attempts)
-      }
+    for (const p of usable) {
       const model = req.model ?? p.defaultModel
       if (!model) {
         attempts.push({ provider: p.id, skipped: 'no model configured' })
@@ -104,12 +115,8 @@ export function createRouter({ registry, health, audit, clock = Date.now, cooldo
     const { list, skipped } = eligible(req)
     const attempts = [...skipped]
     if (list.length === 0) throw new RouteError('no eligible decision provider', attempts)
-    for (const p of list) {
-      if (p.paid && !req.confirmSpend) {
-        attempts.push({ provider: p.id, skipped: 'paid provider: confirmSpend required' })
-        audit?.record('ai.route.blocked', { provider: p.id, reason: 'spend-not-confirmed' })
-        throw new RouteError('blocked: this call spends tokens and was not confirmed', attempts)
-      }
+    const usable = spendFilter(list, req, attempts)
+    for (const p of usable) {
       const model = req.model ?? p.defaultModel
       if (!model || typeof p.adapter.decide !== 'function') {
         attempts.push({ provider: p.id, skipped: model ? 'adapter cannot decide' : 'no model configured' })

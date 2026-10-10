@@ -15,6 +15,12 @@ contextBridge.exposeInMainWorld('jarvis', {
     remove: (root: string) => ipcRenderer.invoke('projects:remove', root),
     rescan: (root: string) => ipcRenderer.invoke('projects:rescan', root),
   },
+  ia: {
+    status: () => ipcRenderer.invoke('ia:status'),
+    start: (mode: string) => ipcRenderer.invoke('ia:start', mode),
+    stop: () => ipcRenderer.invoke('ia:stop'),
+    setRoot: () => ipcRenderer.invoke('ia:setRoot'),
+  },
   code: {
     engines: () => ipcRenderer.invoke('code:engines'),
     start: (opts: { engine: string; cwd: string; cols: number; rows: number }) => ipcRenderer.invoke('code:start', opts),

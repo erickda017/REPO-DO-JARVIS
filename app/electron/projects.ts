@@ -17,7 +17,7 @@ export interface ProjectGraph {
   scannedAt: string
 }
 
-const SKIP_DIRS = new Set(['node_modules', '.git', 'dist', 'dist-app', 'dist-electron', 'build', 'release', '.next', '.venv', 'venv', '__pycache__', 'target', 'coverage', '.cache', '.idea', '.vscode'])
+const SKIP_DIRS = new Set(['ia-local', '.impeccable', 'node_modules', '.git', 'dist', 'dist-app', 'dist-electron', 'build', 'release', '.next', '.venv', 'venv', '__pycache__', 'target', 'coverage', '.cache', '.idea', '.vscode'])
 const KEY_FILES = /^(readme(\.\w+)?|package\.json|tsconfig\.json|pyproject\.toml|requirements\.txt|cargo\.toml|go\.mod|dockerfile|docker-compose\.ya?ml|license|claude\.md|\.env\.example|vite\.config\.\w+|makefile)$/i
 const SOURCE_EXT = new Set(['.ts', '.tsx', '.js', '.jsx', '.mjs', '.cjs', '.py', '.css'])
 const RESOLVE_EXT = ['', '.ts', '.tsx', '.js', '.jsx', '.mjs', '.cjs', '.py', '.css', '/index.ts', '/index.tsx', '/index.js', '/index.mjs']

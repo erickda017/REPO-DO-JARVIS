@@ -1,5 +1,6 @@
 import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
+import { withCatalog } from './catalog.mjs'
 
 /**
  * Loads `command.config.json` from the repo root (path override:
@@ -32,7 +33,7 @@ export function loadConfig({ root = process.cwd(), env = process.env } = {}) {
   }
   return {
     path,
-    providers: raw.providers ?? [],
+    providers: withCatalog(raw.providers ?? []),
     services: raw.services ?? [],
     projects: raw.projects ?? [],
     autoStartMonitors: raw.autoStartMonitors === true,

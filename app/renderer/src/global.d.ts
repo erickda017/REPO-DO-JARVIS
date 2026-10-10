@@ -1,5 +1,6 @@
 import type { ProjectGraph } from '../../electron/projects.ts'
 import type { AgentEvent, Metrics } from '../../electron/transcripts.ts'
+import type { IaMode, IaStatus } from '../../electron/ia.ts'
 
 export type Engine = 'claude' | 'agent' | 'shell'
 
@@ -12,6 +13,12 @@ declare global {
         add: () => Promise<ProjectGraph | null>
         remove: (root: string) => Promise<boolean>
         rescan: (root: string) => Promise<ProjectGraph | null>
+      }
+      ia: {
+        status: () => Promise<IaStatus>
+        start: (mode: IaMode) => Promise<IaStatus>
+        stop: () => Promise<IaStatus>
+        setRoot: () => Promise<IaStatus>
       }
       code: {
         engines: () => Promise<{ claude: boolean; agent: string | null; shell: boolean }>

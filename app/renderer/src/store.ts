@@ -6,7 +6,7 @@ import { mediaUrls, parseIntent } from './intents.ts'
 import type { ProjectGraph } from '../../electron/projects.ts'
 import type { AgentEvent, Metrics } from '../../electron/transcripts.ts'
 
-export type View = 'home' | 'chat' | 'code' | 'projects' | 'ais' | 'system' | 'voice'
+export type View = 'home' | 'chat' | 'code' | 'projects' | 'ia' | 'ais' | 'system' | 'voice'
 export interface Touch { id: number; path: string; at: number }
 
 export type CardBody =
@@ -32,6 +32,9 @@ interface State {
   sensitive: boolean
   spend: boolean
   speak: boolean
+  caption: { id: number; text: string } | null
+  collapsed: boolean
+  toggleSidebar: () => void
   projects: ProjectGraph[]
   touches: Touch[]
   metrics: Metrics | null
@@ -71,6 +74,13 @@ export const useApp = create<State>((set, get) => ({
   sensitive: false,
   spend: false,
   speak: false,
+  caption: null,
+  collapsed: (() => { try { return localStorage.getItem('jarvis.sidebar') === 'collapsed' } catch { return false } })(),
+  toggleSidebar: () =>
+    set((s) => {
+      try { localStorage.setItem('jarvis.sidebar', s.collapsed ? 'open' : 'collapsed') } catch { /* private mode */ }
+      return { collapsed: !s.collapsed }
+    }),
   projects: [],
   touches: [],
   metrics: null,
@@ -208,14 +218,25 @@ export const useApp = create<State>((set, get) => ({
           get().pulse('core')
           get().pulse(`ai:${r.provider}`)
           say({ role: 'assistant', text: r.text, meta: `${r.provider} · ${r.model} · ${r.latencyMs} ms` })
-          get().addCard('JARVIS', { type: 'text', text: r.text, meta: `${r.provider} · ${r.latencyMs} ms` })
+          // The answer shows as a subtitle, not a card, and goes away when the voice stops (or after a reading time).
+          const capId = ++seq
+          set({ caption: { id: capId, text: r.text } })
+          const spoken = st.speak
+            ? speakViaBridge(r.text).then(
+                (ok): Promise<void> =>
+                  ok
+                    ? Promise.resolve()
+                    : new Promise<void>((done) => {
+                        const u = new SpeechSynthesisUtterance(r.text)
+                        u.lang = 'pt-BR'
+                        u.onend = u.onerror = () => done()
+                        speechSynthesis.speak(u)
+                      }),
+              )
+            : new Promise<void>((done) => setTimeout(done, Math.min(Math.max(4000, r.text.length * 65), 25000)))
+          void spoken.then(() => setTimeout(() => set((s) => (s.caption?.id === capId ? { caption: null } : {})), 600))
           // Media links written by a model are not fetched until the owner clicks: loading them would tell that host this PC's address.
           for (const m of mediaUrls(r.text).slice(0, 2)) get().addCard(m.mediaType === 'image' ? 'Imagem sugerida' : 'Vídeo sugerido', { type: 'media', url: m.url, mediaType: m.mediaType, autoload: false })
-          if (st.speak && !(await speakViaBridge(r.text))) {
-            const u = new SpeechSynthesisUtterance(r.text)
-            u.lang = 'pt-BR'
-            speechSynthesis.speak(u)
-          }
           break
         }
       }
