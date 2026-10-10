@@ -19,7 +19,7 @@ const base = (p: string) => p.split(/[\\/]/).slice(-2).join('/')
 export function CodeView() {
   const { projects, metrics, events, addProject, loadProjects } = useApp()
   const [engines, setEngines] = useState<{ claude: boolean; agent: string | null } | null>(null)
-  const [engine, setEngine] = useState<Engine>('claude')
+  const [engine, setEngine] = useState<Engine>('agent')
   const [root, setRoot] = useState('')
   const [running, setRunning] = useState(false)
   const [err, setErr] = useState('')
@@ -75,7 +75,7 @@ export function CodeView() {
       <div className="code-main">
         <div className="code-bar">
           <div className="seg" role="radiogroup" aria-label="Motor">
-            {([['claude', 'Claude Code'], ['agent', 'Meu agente'], ['shell', 'Terminal']] as const).map(([id, label]) => (
+            {([['agent', 'J.A.R.V.I.S. Code'], ['claude', 'Claude Code'], ['shell', 'Terminal']] as const).map(([id, label]) => (
               <button key={id} role="radio" aria-checked={engine === id} onClick={() => setEngine(id)} disabled={running}>{label}</button>
             ))}
           </div>
@@ -84,10 +84,10 @@ export function CodeView() {
             {projects.map((p) => <option key={p.root} value={p.root}>{p.name} — {p.root}</option>)}
           </select>
           <button className="btn" onClick={() => void addProject()} disabled={running}><FolderPlus size={14} /> Pasta</button>
-          {engine === 'agent' && <button className="btn" onClick={() => void jv.code.setAgentPath().then((p) => setEngines((e) => (e ? { ...e, agent: p } : e)))} disabled={running}>{engines?.agent ? 'Trocar agente' : 'Definir agente'}</button>}
+          {engine === 'agent' && <button className="btn" onClick={() => void jv.code.setAgentPath().then((p) => setEngines((e) => (e ? { ...e, agent: p } : e)))} disabled={running}>{engines?.agent ? 'Usar outro agente' : 'Definir agente'}</button>}
           {running ? <button className="btn danger" onClick={stop}><Square size={14} /> Parar</button> : <button className="btn primary" onClick={() => void start()} disabled={!usable || !root}><Play size={14} /> Iniciar</button>}
         </div>
-        {!usable && <p className="dim small">{engine === 'claude' ? 'O Claude Code não está instalado (é opcional, o JARVIS funciona sem ele). Use o Terminal ou instale-o e faça login.' : 'Opcional: aponte o arquivo que inicia um agente de terminal seu. O JARVIS funciona sem ele.'}</p>}
+        {!usable && <p className="dim small">{engine === 'claude' ? 'O Claude Code não está instalado (é opcional, o JARVIS funciona sem ele). Use o Terminal ou instale-o e faça login.' : 'O agente do JARVIS vem com o app. Se este não achou, reinstale; ou aponte o arquivo de outro agente seu.'}</p>}
         {engine === 'agent' && engines?.agent && <p className="dim small">Agente: <code>{engines.agent}</code></p>}
         {err && <p className="err small" role="alert">{err}</p>}
         <div className="term" ref={host} />

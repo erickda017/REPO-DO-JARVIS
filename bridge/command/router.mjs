@@ -60,7 +60,8 @@ export function createRouter({ registry, health, audit, clock = Date.now, cooldo
     for (const p of list.filter((x) => x.paid)) attempts.push({ provider: p.id, skipped: 'paid provider: needs "autorizo gasto"' })
     if (free.length === 0) {
       audit?.record('ai.route.blocked', { providers: list.map((p) => p.id), reason: 'spend-not-confirmed' })
-      throw new RouteError('blocked: this call spends tokens and was not confirmed — ligue "Autorizo gasto" (a carteira, na barra de mensagem) ou marque uma API como Grátis na tela IAs', attempts)
+      const paused = attempts.filter((a) => /cooling/.test(a.skipped ?? '')).map((a) => a.provider)
+      throw new RouteError(`blocked: this call spends tokens and was not confirmed — ligue "Autorizo gasto" (a carteira, na barra de mensagem) ou marque uma API como Grátis na tela IAs${paused.length ? `. Atenção: ${paused.join(', ')} está(ão) em pausa por falha recente (cota ou limite): tente de novo em alguns minutos` : ''}`, attempts)
     }
     return free
   }

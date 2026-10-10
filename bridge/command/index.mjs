@@ -90,6 +90,7 @@ export function createCommand({ config = loadConfig(), fetch: fetchImpl = fetch,
     setInterval(checkDisks, 5 * 60_000).unref?.()
   }
   const openai = createOpenAiApi({ router, registry, file: persist ? join(config.dataDir, 'router-token.txt') : null, flags: settings.flags, audit })
+  if (persist) void openai.token().catch(() => {}) // the key file exists from the first start, so local programs (the terminal agent) can read it
   const missions = createOrchestrator({ router, agent, access, memory, audit, dir: persist ? join(config.dataDir, 'missions') : null, clock, hooks: { created: (id, goal) => genui?.forMission(id, goal) } })
   genui = createGenUi({ tools, access, flags: settings.flags, router, missions, monitor, audit, dir: persist ? join(config.dataDir, 'ui') : null, clock })
   const parts = { openai, config, registry, health, router, services, projects, tasks, timer, audit, voice, settings, access, monitor, profiles, agent, alerts, missions, memory, genui, connectors, google, mcp }

@@ -153,9 +153,10 @@ const stopTerm = () => {
 const agentPath = (): string | null => {
   const saved = readJson<{ agent?: string }>(userFile('code.json'), {}).agent
   if (saved && existsSync(saved)) return saved
-  const guess = join(ROOT, 'ia-local', 'agente-codigo', 'agente.js') // optional, never versioned: only present if the owner put an agent there
-  return existsSync(guess) ? guess : null
+  const bundled = join(ROOT, 'agente', 'cli.mjs') // J.A.R.V.I.S. Code: ships with the app and uses the router, so no local AI is needed
+  return existsSync(bundled) ? bundled : null
 }
+const isBundledAgent = (p: string) => p === join(ROOT, 'agente', 'cli.mjs')
 /** The owner's own Node (agents may use native modules built for it); falls back to the one inside Electron. */
 const nodeBin = () => { try { return execFileSync('where.exe', ['node'], { encoding: 'utf8' }).split(/\r?\n/)[0].trim() || process.execPath } catch { return process.execPath } }
 const claudeFound = () => { try { execFileSync('where.exe', ['claude'], { stdio: 'ignore' }); return true } catch { return false } }
@@ -224,7 +225,11 @@ function registerIpc(getWin: () => BrowserWindow | null) {
       const p = agentPath()
       if (!p) return { ok: false, error: 'Defina onde está o seu agente.' }
       // Arguments go in separately: node-pty quotes paths with spaces itself, and quotes we add would be doubled.
-      if (/\.js$/i.test(p)) {
+      if (isBundledAgent(p)) {
+        // The bundled agent only needs the app's router (your APIs). It runs on the user's Node, or on Electron's own as a plain Node.
+        file = nodeBin()
+        args = [p, `--pasta=${o.cwd}`]
+      } else if (/\.js$/i.test(p)) {
         // Pre-answer the agent's two start-up questions (folder and model) so the session opens clean: the heavy
         // model when its server is up, otherwise the light one. (--key=value is the only form its parser reads.)
         const modo = (await portBusy(8081)) ? 'programacao' : (await portBusy(8082)) ? 'leve' : null
@@ -233,7 +238,9 @@ function registerIpc(getWin: () => BrowserWindow | null) {
         args = [p, `--pasta=${o.cwd}`, `--modo=${modo}`]
       } else { file = 'cmd.exe'; args = ['/c', p] }
     }
-    const t = pty.spawn(file, args, { name: 'xterm-256color', cols: o.cols || 100, rows: o.rows || 30, cwd: o.cwd, env: process.env as Record<string, string> })
+    // ELECTRON_RUN_AS_NODE only for the bundled agent (when it falls back to Electron's Node): a user's shell must not inherit it.
+    const env = { ...process.env, ...(o.engine === 'agent' ? { ...userPaths(), JARVIS_BRIDGE_PORT: String(BRIDGE_PORT), ELECTRON_RUN_AS_NODE: '1' } : {}) } as Record<string, string>
+    const t = pty.spawn(file, args, { name: 'xterm-256color', cols: o.cols || 100, rows: o.rows || 30, cwd: o.cwd, env })
     term = t
     t.onData((d) => { if (term === t) send('code:data', d) })
     // An older terminal exiting after a restart must not clear the NEW one (that left it orphaned and unreachable).

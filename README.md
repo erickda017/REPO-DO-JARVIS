@@ -66,8 +66,10 @@ Detalhes em [docs/IA_LOCAL_E_APIS.md](docs/IA_LOCAL_E_APIS.md).
 - **Voz:** ouve pelo microfone (escolha o microfone e teste o nível na tela de Voz) e fala. Atalho global: `Ctrl+Alt+J`.
 - **Bandeja do sistema:** fica ao lado do relógio e pode iniciar junto com o Windows (menu da bandeja → "Iniciar com o Windows").
 - **Tarefas, cronômetro, projetos e serviços:** monitores e listas com a rede neural reagindo.
-- **Programar:** um terminal dentro do app. Motores: Terminal comum, Claude Code (opcional, se estiver instalado) e "Meu agente"
-  (opcional, um agente de terminal seu).
+- **Programar:** um terminal dentro do app com o **J.A.R.V.I.S. Code**, um agente de programação que já vem com o app (edita arquivos com
+  casamento aproximado, roda comandos com aprovação, pesquisa na web, mantém um plano de tarefas, compacta o contexto e usa
+  subagentes). Ele usa as suas APIs pelo roteador, sem chave própria nem IA local. É baseado nas técnicas do Hermes Agent (MIT); veja
+  [docs/AGENTE.md](docs/AGENTE.md). Também há o Terminal comum e, se estiver instalado, o Claude Code.
 
 ### Conectores
 

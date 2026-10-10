@@ -19,7 +19,7 @@ sh('node scripts/make-icon.mjs')
 const stage = 'release/stage'
 rmSync('release', { recursive: true, force: true })
 mkdirSync(stage, { recursive: true })
-for (const d of ['dist-app', 'dist-electron', 'bridge', 'personalidade', 'shared']) cpSync(d, `${stage}/${d}`, { recursive: true })
+for (const d of ['dist-app', 'dist-electron', 'bridge', 'personalidade', 'shared', 'agente']) cpSync(d, `${stage}/${d}`, { recursive: true })
 cpSync('build/icon.png', `${stage}/icon.png`) // tray icon
 // Default config for first run: the owner's local config if present, otherwise the all-disabled example.
 // It is sanitised first: nothing that is not a plain env-var NAME may ever be baked into an installer.

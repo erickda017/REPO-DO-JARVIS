@@ -24,7 +24,8 @@
     "app:build": "vite build -c vite.app.config.ts && node scripts/build-electron.mjs",
     "app": "npm run app:build && electron .",
     "app:dist": "node scripts/package-app.mjs",
-    "test:agent": "node --test \"test/agent/*.test.mjs\""
+    "test:agent": "node --test \"test/agent/*.test.mjs\"",
+    "test:agente": "node --test \"test/agente/*.test.mjs\""
   },
   "dependencies": {
     "@anthropic-ai/claude-agent-sdk": "^0.3.220",
