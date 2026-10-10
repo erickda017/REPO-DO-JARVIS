@@ -58,4 +58,14 @@ test('ferramentas de risco pedem confirmação mesmo sendo comando pronto (desli
   agent.confirm(view.pending.id, false)
   const v = await finish(agent, id)
   assert.notEqual(v.result.status, 'concluido')
+  assert.match(v.result.text, /Cancelado/)
+  assert.equal(v.usage.calls, 0, 'negar não acorda a IA')
+})
+
+test('comando pronto: temperatura sem sensor responde em uma frase, sem despejar JSON', async () => {
+  const { agent, tools } = setup()
+  tools.sys_temperature.run = async () => ({ data: { cpu: { available: false, reason: 'x' }, gpu: { available: false } } })
+  const v = await finish(agent, agent.run({ text: 'qual a temperatura' }))
+  assert.match(v.result.text, /não expõe a temperatura/)
+  assert.doesNotMatch(v.result.text, /[{}]/)
 })

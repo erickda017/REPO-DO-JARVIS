@@ -267,7 +267,11 @@ export function createAgent({ router, tools, access, audit, flags = null, person
             job.status = 'running'
             job.pending = null
             audit?.record('agent.confirm', { tool: act.tool, approved })
-            if (!approved) { failures.set(key, 2); Object.assign(step, { ok: false, denied: true }); observe({ ok: false, error: 'o usuário NÃO autorizou esta ação' }); continue }
+            if (!approved) {
+              failures.set(key, 2); Object.assign(step, { ok: false, denied: true }); observe({ ok: false, error: 'o usuário NÃO autorizou esta ação' })
+              if (quick && n === 0) { finalText = 'Cancelado: você não autorizou essa ação.'; break } // a ready-made command has nothing else to try, and no model should be woken for it
+              continue
+            }
           }
         }
         const r = await tool.run(act.args ?? {})

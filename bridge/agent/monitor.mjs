@@ -118,14 +118,14 @@ export function createMonitor({ clock = Date.now, os = nodeOs, run = psJson, run
       const out = { cpu: { available: false }, gpu: { available: false } }
       if (!isWindows) return out
       try {
-        const t = await run("Get-CimInstance -Namespace root/wmi -ClassName MSAcpi_ThermalZoneTemperature | Select-Object -First 1 -ExpandProperty CurrentTemperature | ConvertTo-Json -Compress", { timeoutMs: 10000 })
+        const t = await run("Get-CimInstance -Namespace root/wmi -ClassName MSAcpi_ThermalZoneTemperature | Select-Object -First 1 -ExpandProperty CurrentTemperature | ConvertTo-Json -Compress", { timeoutMs: 5000 })
         if (typeof t === 'number' && t > 2000) out.cpu = { available: true, celsius: r1(t / 10 - 273.15), source: 'WMI MSAcpi_ThermalZoneTemperature (zona térmica da placa-mãe; pode não ser o núcleo da CPU)' }
       } catch (e) {
         out.cpu.reason = `WMI térmico indisponível (${e.message.slice(0, 80)}); muitas placas só expõem isso a um app de sensores, como o HWiNFO ou o LibreHardwareMonitor.`
       }
       if (!out.cpu.available) {
         try {
-          const t = await run("Get-CimInstance Win32_PerfFormattedData_Counters_ThermalZoneInformation | Select-Object -First 1 -ExpandProperty Temperature | ConvertTo-Json -Compress", { timeoutMs: 10000 })
+          const t = await run("Get-CimInstance Win32_PerfFormattedData_Counters_ThermalZoneInformation | Select-Object -First 1 -ExpandProperty Temperature | ConvertTo-Json -Compress", { timeoutMs: 5000 })
           if (typeof t === 'number' && t > 200) out.cpu = { available: true, celsius: r1(t - 273.15), source: 'contador ThermalZoneInformation (zona térmica ACPI)' }
         } catch { /* keep the reason above */ }
       }
