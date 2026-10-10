@@ -325,3 +325,48 @@ test('deadline: a job past its time budget stops instead of running forever', as
   const v = await done(agent, id)
   assert.match(v.result.text, /tempo máximo/)
 })
+
+test('streaming: the answer is visible while it is being written, and Stop aborts the model call itself', async () => {
+  const { tools, access } = await setup()
+  let release, sawAbort = false
+  const router = {
+    run: async () => ({ text: '{"action":"final","text":"x"}', provider: 'fake', model: 'm' }),
+    async *runStream({ signal }) {
+      yield { start: true, provider: 'fake', model: 'm' }
+      yield { delta: '{"action":"final","text":"Olá, ' }
+      await new Promise((r) => { release = r; signal.addEventListener('abort', () => { sawAbort = true; r() }) })
+      if (signal.aborted) throw new Error('cancelled')
+      yield { delta: 'mundo"}' }
+      yield { done: true }
+    },
+  }
+  const agent = createAgent({ router, tools, access })
+  const id = agent.run({ text: 'diga olá', audit: false })
+  const partial = await waitFor(() => agent.view(id).partial)
+  assert.equal(partial, 'Olá, ')
+  assert.equal(agent.cancel(id), true)
+  const v = await done(agent, id)
+  assert.equal(sawAbort, true)
+  assert.match(v.result.text, /Cancelado/)
+  assert.equal(v.partial, null)
+})
+
+test('streaming: a task that needs a tool never shows an unverified answer while it streams', async () => {
+  const { tools, access } = await setup()
+  let release
+  const router = {
+    run: async () => ({ text: '', provider: 'fake', model: 'm' }),
+    async *runStream() {
+      yield { start: true, provider: 'fake', model: 'm' }
+      yield { delta: '{"action":"final","text":"Criei o arquivo' }
+      await new Promise((r) => (release = r))
+      yield { done: true }
+    },
+  }
+  const agent = createAgent({ router, tools, access })
+  const id = agent.run({ text: 'crie um arquivo notas.txt na área de trabalho', audit: false })
+  await waitFor(() => release)
+  assert.equal(agent.view(id).partial, null, 'invented claim must stay hidden')
+  agent.cancel(id)
+  release()
+})

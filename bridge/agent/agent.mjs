@@ -91,6 +91,31 @@ ${catalog}
 ${off ? `Ferramentas desativadas (o usuário precisa ligá-las na tela Agente): ${off}.` : ''}`
 
 /**
+ * The visible part of an answer that is still being written. The model replies with a JSON action; only a `final`
+ * action's `text` is shown (a tool call shows nothing), and a plain-text reply is shown as is.
+ * ponytail: assumes "action" is written before "text" (the prompt asks for that order); otherwise nothing shows until the end.
+ */
+export function partialAnswer(raw) {
+  const s = String(raw).trimStart()
+  if (!s) return ''
+  if (!s.startsWith('{') && !s.startsWith('```')) return s
+  const m = /"action"\s*:\s*"final"/.test(s) ? /"text"\s*:\s*"/.exec(s) : null
+  if (!m) return ''
+  const body = s.slice(m.index + m[0].length)
+  let out = ''
+  for (let i = 0; i < body.length; i++) {
+    const c = body[i]
+    if (c === '"') break
+    if (c !== '\\') { out += c; continue }
+    const n = body[i + 1]
+    if (n === undefined) break
+    if (n === 'u') { const h = body.slice(i + 2, i + 6); if (!/^[0-9a-fA-F]{4}$/.test(h)) break; out += String.fromCharCode(parseInt(h, 16)); i += 5; continue }
+    out += n === 'n' ? '\n' : n === 't' ? '\t' : n
+    i++
+  }
+  return out
+}
+/**
  * Agent: natural language in, verified actions out. One loop: the model proposes one JSON action at a time, code
  * enforces permissions and confirmations, tools verify their own results, and the final status is computed from
  * evidence. All model calls go through the same router as everything else (local first, quota failover included).
@@ -110,8 +135,26 @@ export function createAgent({ router, tools, access, audit, clock = Date.now, ma
     return { catalog: lines.join('\n'), off: [...off].join(', ') }
   }
 
-  const ask = async (messages, system, job, maxTokens = 700) =>
-    router.run({ messages, system, capability: 'chat', sensitive: job.sensitive, confirmSpend: job.confirmSpend, maxTokens })
+  // Streams the model call (so the answer can show as it is written, and Stop aborts the HTTP request itself).
+  const ask = async (messages, system, job, maxTokens = 700) => {
+    const req = { messages, system, capability: 'chat', sensitive: job.sensitive, confirmSpend: job.confirmSpend, maxTokens }
+    if (typeof router.runStream !== 'function') return router.run(req)
+    let text = '', provider, model, usage
+    try {
+      for await (const ev of router.runStream({ ...req, signal: job.abort.signal })) {
+        if (ev.start) { provider = ev.provider; model = ev.model; text = '' }
+        else if (ev.delta) {
+          text += ev.delta
+          // Never show a made-up answer: a task that needs a tool is only shown once a tool really ran.
+          job.partial = job.steps.length > 0 || !needsTool(job.text) ? partialAnswer(text) : ''
+        } else if (ev.error) throw new Error(ev.error.message ?? 'a resposta foi interrompida')
+        else if (ev.done) usage = ev.usage
+      }
+    } finally {
+      job.partial = null
+    }
+    return { text, provider, model, usage }
+  }
 
   async function loop(job) {
     const { catalog, off } = catalogFor(job)
@@ -129,7 +172,7 @@ export function createAgent({ router, tools, access, audit, clock = Date.now, ma
       try {
         reply = await ask(messages, system, job)
       } catch (e) {
-        job.error = String(e?.message ?? e).slice(0, 300)
+        job.error = job.cancelled ? 'Cancelado pelo usuário.' : String(e?.message ?? e).slice(0, 300)
         break
       }
       // A model call can take a minute; the Stop button / the deadline apply as soon as it returns, before any tool runs.
@@ -245,7 +288,7 @@ export function createAgent({ router, tools, access, audit, clock = Date.now, ma
     run({ text, history = [], sensitive = false, confirmSpend = false, audit: auditOn }) {
       const t = String(text ?? '').trim()
       if (!t) throw new Error('empty request')
-      const job = { id: randomUUID(), text: t.slice(0, 4000), history: history.filter((m) => (m.role === 'user' || m.role === 'assistant') && typeof m.content === 'string').slice(-10).map((m) => ({ role: m.role, content: m.content.slice(0, 2000) })), sensitive: Boolean(sensitive), confirmSpend: Boolean(confirmSpend), audit: auditOn, status: 'running', steps: [], pending: null, result: null, startedAt: clock() }
+      const job = { id: randomUUID(), text: t.slice(0, 4000), history: history.filter((m) => (m.role === 'user' || m.role === 'assistant') && typeof m.content === 'string').slice(-10).map((m) => ({ role: m.role, content: m.content.slice(0, 2000) })), sensitive: Boolean(sensitive), confirmSpend: Boolean(confirmSpend), audit: auditOn, status: 'running', steps: [], pending: null, result: null, partial: null, abort: new AbortController(), startedAt: clock() }
       jobs.set(job.id, job)
       if (jobs.size > 40) jobs.delete(jobs.keys().next().value)
       loop(job).catch((e) => {
@@ -259,13 +302,14 @@ export function createAgent({ router, tools, access, audit, clock = Date.now, ma
     view(id) {
       const j = jobs.get(id)
       if (!j) return null
-      return { id: j.id, status: j.status, steps: j.steps, pending: j.pending ? { id: j.pending.id, tool: j.pending.tool, message: j.pending.message } : null, result: j.result, provider: j.provider ?? null }
+      return { id: j.id, status: j.status, steps: j.steps, pending: j.pending ? { id: j.pending.id, tool: j.pending.tool, message: j.pending.message } : null, result: j.result, provider: j.provider ?? null, partial: j.partial || null }
     },
     /** Stop button: nothing further runs; a pending confirmation is answered "no". An action already running finishes. */
     cancel(id) {
       const j = jobs.get(id)
       if (!j || j.status === 'done') return false
       j.cancelled = true
+      j.abort.abort()
       j.pending?.resolve(false)
       return true
     },

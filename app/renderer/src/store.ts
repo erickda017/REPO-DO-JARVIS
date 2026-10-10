@@ -78,7 +78,7 @@ async function askAgent(history: ChatTurn[], sensitive: boolean, spend: boolean,
   }
   const t0 = Date.now()
   for (;;) {
-    await new Promise((r) => setTimeout(r, 600))
+    await new Promise((r) => setTimeout(r, 300))
     const j = await api.agentJob(jobId)
     onJob(j)
     if (j.status === 'done' && j.result) {
@@ -91,6 +91,7 @@ async function askAgent(history: ChatTurn[], sensitive: boolean, spend: boolean,
 }
 
 const seenAlerts = new Set<string>()
+const liveCaption = -1 // id of the subtitle that follows the answer as it streams in
 let refreshing = false, polling = false, probing = false, dismissedJob = ''
 let seq = 0
 const MAX_CARDS = 7
@@ -279,7 +280,11 @@ export const useApp = create<State>((set, get) => ({
             .messages.filter((m): m is Message & { role: 'user' | 'assistant' } => m.role !== 'error')
             .slice(-20) // the whole session is not re-sent on every request
             .map((m) => ({ role: m.role, content: m.text }))
-          const r = await askAgent(history, st.sensitive, st.spend, (job) => set({ job: job.id !== dismissedJob && (job.steps.length || job.pending) ? job : null }))
+          const r = await askAgent(history, st.sensitive, st.spend, (job) => {
+            set({ job: job.id !== dismissedJob && (job.steps.length || job.pending) ? job : null })
+            // The answer shows as a subtitle while it is still being written.
+            if (job.partial) set({ caption: { id: liveCaption, text: job.partial } })
+          })
           get().pulse('core')
           get().pulse(`ai:${r.provider}`)
           say({ role: 'assistant', text: r.text, meta: r.meta })
@@ -312,7 +317,7 @@ export const useApp = create<State>((set, get) => ({
       say({ role: 'error', text: e instanceof ApiError ? e.message : String(e) })
       set({ job: null }) // never leave a spinner behind after a failure
     } finally {
-      set({ busy: false })
+      set((s) => ({ busy: false, ...(s.caption?.id === liveCaption ? { caption: null } : {}) }))
       void get().refresh()
     }
   },

@@ -1,5 +1,5 @@
 import { ProviderError } from '../errors.mjs'
-import { request, raiseForStatus } from '../http.mjs'
+import { request, raiseForStatus, sse } from '../http.mjs'
 
 /**
  * Anthropic Messages API adapter (https://api.anthropic.com by default).
@@ -43,6 +43,19 @@ export function anthropicProvider(cfg, { fetch: fetchImpl = fetch, env = process
       raiseForStatus(res, cfg.id)
       const models = (res.json?.data ?? []).map((m) => m.id).filter(Boolean)
       return { endpoint, auth: { state: 'ok' }, models }
+    },
+
+    async *stream({ model, prompt, messages, system, maxTokens = 512, signal }) {
+      if (!key()) throw new ProviderError('auth', `${keyName} is not set`, { provider: cfg.id })
+      const body = { model, max_tokens: maxTokens, stream: true, messages: messages ?? [{ role: 'user', content: prompt }] }
+      if (system) body.system = system
+      let inputTokens
+      for await (const ev of sse(fetchImpl, `${baseUrl}/v1/messages`, { headers: headers(), body: JSON.stringify(body), idleTimeoutMs: cfg.inferTimeoutMs ?? 60000, provider: cfg.id, signal })) {
+        if (ev.type === 'error') throw new ProviderError(/overloaded/i.test(ev.error?.type) ? 'server' : 'bad_response', String(ev.error?.message ?? 'stream error').slice(0, 160), { provider: cfg.id })
+        if (ev.type === 'message_start') inputTokens = ev.message?.usage?.input_tokens
+        if (ev.type === 'content_block_delta' && ev.delta?.type === 'text_delta' && ev.delta.text) yield { delta: ev.delta.text }
+        if (ev.type === 'message_delta' && ev.usage) yield { usage: { inputTokens, outputTokens: ev.usage.output_tokens } }
+      }
     },
 
     async infer({ model, prompt, messages, system, maxTokens = 512 }) {

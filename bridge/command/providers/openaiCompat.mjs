@@ -1,5 +1,5 @@
 import { ProviderError } from '../errors.mjs'
-import { request, raiseForStatus } from '../http.mjs'
+import { request, raiseForStatus, sse } from '../http.mjs'
 
 /**
  * Adapter for any server that *actually* speaks `GET {base}/models` and
@@ -42,6 +42,17 @@ export function openaiCompatProvider(cfg, { fetch: fetchImpl = fetch, env = proc
       }
       const auth = keyName ? { state: 'ok' } : { state: 'unknown', detail: 'no key configured; server accepted anonymous request' }
       return { endpoint, auth, models: res.json.data.map((m) => m.id).filter(Boolean) }
+    },
+
+    /** Token by token: yields { delta } and, when the server reports it, a final { usage }. */
+    async *stream({ model, prompt, messages: history, system, maxTokens = 512, signal }) {
+      const messages = [...(system ? [{ role: 'system', content: system }] : []), ...(history ?? [{ role: 'user', content: prompt }])]
+      for await (const ev of sse(fetchImpl, `${baseUrl}/chat/completions`, { headers: headers(), body: JSON.stringify({ model, messages, stream: true, [cfg.tokenParam ?? 'max_tokens']: maxTokens }), idleTimeoutMs: cfg.inferTimeoutMs ?? 120000, provider: cfg.id, signal })) {
+        if (ev.error) throw new ProviderError('bad_response', String(ev.error.message ?? 'stream error').slice(0, 160), { provider: cfg.id })
+        const d = ev.choices?.[0]?.delta?.content ?? ev.choices?.[0]?.message?.content
+        if (typeof d === 'string' && d) yield { delta: d }
+        if (ev.usage) yield { usage: { inputTokens: ev.usage.prompt_tokens, outputTokens: ev.usage.completion_tokens } }
+      }
     },
 
     async infer({ model, prompt, messages: history, system, maxTokens = 512 }) {

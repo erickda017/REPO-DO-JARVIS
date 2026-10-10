@@ -59,7 +59,8 @@ export function createRouter({ registry, health, audit, clock = Date.now, cooldo
     return { list: out.sort((a, b) => a.priority - b.priority), skipped }
   }
 
-  async function run(request) {
+  /** Validation + provider selection shared by run and runStream. */
+  function prepare(request) {
     const req = { capability: 'chat', sensitive: false, confirmSpend: false, ...request }
     if (req.messages !== undefined) {
       const m = req.messages
@@ -80,6 +81,11 @@ export function createRouter({ registry, health, audit, clock = Date.now, cooldo
       throw new RouteError('no eligible provider for this request', attempts)
     }
     const usable = spendFilter(list, req, attempts)
+    return { req, usable, attempts }
+  }
+
+  async function run(request) {
+    const { req, usable, attempts } = prepare(request)
 
     for (const p of usable) {
       const model = req.model ?? p.defaultModel
@@ -106,6 +112,63 @@ export function createRouter({ registry, health, audit, clock = Date.now, cooldo
     throw new RouteError(last && attempts.filter((a) => a.error).length === 1 ? `${last.provider} failed: ${last.message}` : 'all eligible providers failed', attempts)
   }
 
+  /**
+   * Same selection and failover as `run`, but tokens are handed over as they arrive:
+   *   { start, provider, model }  once, with the first text  ->  { delta } ...  ->  { done, usage, attempts, provider, model }
+   * Failover only happens BEFORE the first token (nothing was shown yet). If a provider dies mid-answer the caller gets
+   * { error, partial: true } and keeps what it already has; a different model never silently continues a sentence.
+   * Providers without a `stream` method answer in one piece. Breaking out of the loop (or aborting req.signal) cancels the HTTP call.
+   */
+  async function* runStream(request) {
+    const { req, usable, attempts } = prepare(request)
+    const t0 = clock()
+    for (const p of usable) {
+      const model = req.model ?? p.defaultModel
+      if (!model) {
+        attempts.push({ provider: p.id, skipped: 'no model configured' })
+        continue
+      }
+      if (attempts.some((a) => a.error) && clock() - t0 > (req.deadlineMs ?? 240_000)) {
+        attempts.push({ provider: p.id, skipped: 'tempo total esgotado' })
+        break
+      }
+      let started = false
+      let usage
+      const call = { model, prompt: req.prompt, messages: req.messages, system: req.system, maxTokens: req.maxTokens, signal: req.signal }
+      try {
+        if (typeof p.adapter.stream === 'function') {
+          for await (const ev of p.adapter.stream(call)) {
+            if (ev.delta) {
+              if (!started) { started = true; yield { start: true, provider: p.id, model } }
+              yield { delta: ev.delta }
+            } else if (ev.usage) usage = ev.usage
+          }
+          if (!started) throw new ProviderError('bad_response', 'stream ended without any text', { provider: p.id })
+        } else {
+          const out = await p.adapter.infer(call)
+          started = true
+          usage = out.usage
+          yield { start: true, provider: p.id, model: out.model ?? model }
+          yield { delta: out.text }
+        }
+        audit?.record('ai.infer', { provider: p.id, model, ok: true, stream: true, promptChars: req.prompt.length })
+        attempts.push({ provider: p.id, ok: true })
+        yield { done: true, usage, attempts, provider: p.id, model }
+        return
+      } catch (err) {
+        if (req.signal?.aborted) throw new RouteError('cancelled', attempts) // the caller left: never start another provider
+        const e = err instanceof ProviderError ? err : new ProviderError('network', String(err?.message ?? err), { provider: p.id })
+        health?.pushError(p.id, e)
+        if (e.retryable || SKIPPABLE.has(e.kind)) cooldown.set(p.id, clock() + coolFor(e))
+        attempts.push({ provider: p.id, error: e.toJSON() })
+        audit?.record('ai.infer', { provider: p.id, model, ok: false, stream: true, kind: e.kind, promptChars: req.prompt.length })
+        if (started) { yield { error: e.toJSON(), partial: true, attempts }; return }
+        if ((!e.retryable && !SKIPPABLE.has(e.kind)) || !p.allowFallback) throw new RouteError(`${p.id} failed: ${e.message}`, attempts)
+      }
+    }
+    const last = [...attempts].reverse().find((a) => a.error)?.error
+    throw new RouteError(last && attempts.filter((a) => a.error).length === 1 ? `${last.provider} failed: ${last.message}` : 'all eligible providers failed', attempts)
+  }
   /**
    * Ask a decision provider (capability "decision", e.g. Jev) structured
    * questions about some content. Same gates as `run`; never falls back to a
@@ -194,5 +257,5 @@ export function createRouter({ registry, health, audit, clock = Date.now, cooldo
     return { ...out, routing }
   }
 
-  return { run, decide, smartRun, eligible }
+  return { run, runStream, decide, smartRun, eligible }
 }

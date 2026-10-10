@@ -10,7 +10,7 @@ const BODY_LIMIT = 2 * 1024 * 1024
  * owner's own coding agent, scripts, editors) gets the same provider failover: when one account runs out of quota the
  * next one answers and the work continues.
  *
- *   POST /v1/chat/completions   (non-streaming, or a one-chunk stream for clients that insist on stream:true)
+ *   POST /v1/chat/completions   (plain, or stream:true = real token-by-token SSE)
  *   GET  /v1/models
  *
  * Loopback only (the bridge is never exposed), a bearer token is required, and paid providers are used only when the
@@ -91,6 +91,50 @@ export function createOpenAiApi({ router, registry, file, flags, audit }) {
           turns = turns.slice(-40)
           while (turns.length > 1 && turns[0].role !== 'user') turns.shift() // some APIs reject a conversation that starts with the assistant
           const req0 = { messages: turns, messageLimit: 200_000, system: system?.slice(0, 200_000), maxTokens: Math.min(Number(b.max_tokens ?? b.max_completion_tokens) || 1024, 8192), confirmSpend: flags.get('routerSpend') === true, providerId: registry.get(String(b.model)) ? String(b.model) : undefined }
+          const id = 'chatcmpl-' + randomBytes(8).toString('hex')
+          const created = Math.floor(Date.now() / 1000)
+          if (b.stream === true) {
+            // Real streaming: tokens go out as the provider produces them. Failover still works until the first token.
+            const ctrl = new AbortController()
+            res.on('close', () => ctrl.abort()) // the client left: cancel the upstream call too
+            const open = async (capability) => {
+              const it = router.runStream({ ...req0, capability, signal: ctrl.signal })[Symbol.asyncIterator]()
+              return { it, first: await it.next() }
+            }
+            let s
+            try {
+              s = await open('coding')
+            } catch (e) {
+              if (!(e instanceof RouteError) || e.attempts.some((a) => a.error)) {
+                if (e instanceof RouteError && !/no eligible/.test(e.message)) throw e
+              }
+              s = await open('chat')
+            }
+            res.writeHead(200, { 'content-type': 'text/event-stream', 'cache-control': 'no-store', 'x-accel-buffering': 'no' })
+            const chunk = (delta, finish = null, extra = {}) => res.write(`data: ${JSON.stringify({ id, object: 'chat.completion.chunk', created, model, choices: [{ index: 0, delta, finish_reason: finish }], ...extra })}\n\n`)
+            let model = 'jarvis/auto'
+            let ev = s.first
+            try {
+              while (!ev.done) {
+                const v = ev.value
+                if (v.start) { model = `${v.provider}/${v.model}`; chunk({ role: 'assistant', content: '' }) }
+                else if (v.delta) chunk({ content: v.delta })
+                else if (v.error) { res.write(`data: ${JSON.stringify({ error: { message: v.error.message, type: 'provider_error' } })}\n\n`); chunk({}, 'error') }
+                else if (v.done) {
+                  const u = v.usage ?? {}
+                  chunk({}, 'stop', { usage: { prompt_tokens: u.inputTokens ?? 0, completion_tokens: u.outputTokens ?? 0, total_tokens: (u.inputTokens ?? 0) + (u.outputTokens ?? 0) } })
+                  audit?.record('router.openai', { provider: v.provider, model: v.model, ok: true, stream: true })
+                }
+                ev = await s.it.next()
+              }
+            } catch (e) {
+              if (!ctrl.signal.aborted) res.write(`data: ${JSON.stringify({ error: { message: String(e?.message ?? e).slice(0, 300), type: 'provider_error' } })}\n\n`)
+            } finally {
+              await s.it.return?.()
+            }
+            res.end('data: [DONE]\n\n')
+            return true
+          }
           let out
           try {
             out = await router.run({ ...req0, capability: 'coding' })
@@ -103,16 +147,7 @@ export function createOpenAiApi({ router, registry, file, flags, audit }) {
           }
           audit?.record('router.openai', { provider: out.provider, model: out.model, ok: true })
           const usage = { prompt_tokens: out.usage?.inputTokens ?? 0, completion_tokens: out.usage?.outputTokens ?? 0, total_tokens: (out.usage?.inputTokens ?? 0) + (out.usage?.outputTokens ?? 0) }
-          const id = 'chatcmpl-' + randomBytes(8).toString('hex')
-          const created = Math.floor(Date.now() / 1000)
           const model = `${out.provider}/${out.model}`
-          if (b.stream === true) {
-            res.writeHead(200, { 'content-type': 'text/event-stream', 'cache-control': 'no-store' })
-            res.write(`data: ${JSON.stringify({ id, object: 'chat.completion.chunk', created, model, choices: [{ index: 0, delta: { role: 'assistant', content: out.text }, finish_reason: null }] })}\n\n`)
-            res.write(`data: ${JSON.stringify({ id, object: 'chat.completion.chunk', created, model, choices: [{ index: 0, delta: {}, finish_reason: 'stop' }], usage })}\n\n`)
-            res.end('data: [DONE]\n\n')
-            return true
-          }
           send(res, 200, { id, object: 'chat.completion', created, model, choices: [{ index: 0, message: { role: 'assistant', content: out.text }, finish_reason: 'stop' }], usage }, { 'x-jarvis-provider': out.provider })
           return true
         }

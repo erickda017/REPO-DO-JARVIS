@@ -1,5 +1,5 @@
 import { ProviderError } from '../errors.mjs'
-import { raiseForStatus, request } from '../http.mjs'
+import { raiseForStatus, request, sse } from '../http.mjs'
 
 /**
  * Google Gemini (Generative Language API, v1beta). Contract checked against Google's public
@@ -31,6 +31,18 @@ export function geminiProvider(cfg, { fetch: fetchImpl = fetch, env = process.en
       raiseForStatus(res, cfg.id)
       if (!Array.isArray(res.json?.models)) throw new ProviderError('bad_response', 'GET /models did not return {models: [...]}', { provider: cfg.id })
       return { endpoint, auth: { state: 'ok' }, models: res.json.models.map((m) => bare(m.name)) }
+    },
+
+    async *stream({ model, prompt, messages, system, maxTokens = 512, signal }) {
+      if (!key()) throw new ProviderError('auth', `${keyName} is not set`, { provider: cfg.id })
+      const turns = messages ?? [{ role: 'user', content: prompt }]
+      const body = { contents: turns.map((m) => ({ role: m.role === 'assistant' ? 'model' : 'user', parts: [{ text: m.content }] })), generationConfig: { maxOutputTokens: maxTokens } }
+      if (system) body.systemInstruction = { parts: [{ text: system }] }
+      for await (const ev of sse(fetchImpl, `${baseUrl}/models/${encodeURIComponent(bare(model))}:streamGenerateContent?alt=sse`, { headers: headers(), body: JSON.stringify(body), idleTimeoutMs: cfg.inferTimeoutMs ?? 60000, provider: cfg.id, signal })) {
+        const t = (ev.candidates?.[0]?.content?.parts ?? []).map((p) => p.text ?? '').join('')
+        if (t) yield { delta: t }
+        if (ev.usageMetadata?.candidatesTokenCount) yield { usage: { inputTokens: ev.usageMetadata.promptTokenCount, outputTokens: ev.usageMetadata.candidatesTokenCount } }
+      }
     },
 
     async infer({ model, prompt, messages, system, maxTokens = 512 }) {
