@@ -17,6 +17,11 @@ contextBridge.exposeInMainWorld('jarvis', {
     rescan: (root: string) => ipcRenderer.invoke('projects:rescan', root),
   },
   access: { pick: () => ipcRenderer.invoke('access:pick') },
+  app: {
+    getSettings: () => ipcRenderer.invoke('app:getSettings'),
+    setSettings: (p: object) => ipcRenderer.invoke('app:setSettings', p),
+    onListen: (cb: () => void) => on('voice:listen', cb),
+  },
   ia: {
     status: () => ipcRenderer.invoke('ia:status'),
     start: (mode: string) => ipcRenderer.invoke('ia:start', mode),

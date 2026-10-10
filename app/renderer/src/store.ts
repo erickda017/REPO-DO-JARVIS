@@ -7,7 +7,7 @@ import { listenOnce } from './voice/listen.ts'
 import type { ProjectGraph } from '../../electron/projects.ts'
 import type { AgentEvent, Metrics } from '../../electron/transcripts.ts'
 
-export type View = 'home' | 'chat' | 'code' | 'projects' | 'ia' | 'agent' | 'ais' | 'system' | 'voice'
+export type View = 'home' | 'chat' | 'code' | 'projects' | 'ia' | 'agent' | 'missions' | 'ais' | 'system' | 'voice'
 export interface Touch { id: number; path: string; at: number }
 
 export type CardBody =
@@ -257,6 +257,14 @@ export const useApp = create<State>((set, get) => ({
     const say = (m: Message) => set((s) => ({ messages: [...s.messages, m] }))
     say({ role: 'user', text })
     const intent = parseIntent(text)
+    if (intent.kind === 'mission') {
+      try {
+        await api.missionStart(intent.goal, st.sensitive, st.spend)
+        say({ role: 'assistant', text: 'Missão criada. Acompanhe o plano e as etapas na tela Missões.' })
+        get().setView('missions')
+      } catch (e) { say({ role: 'error', text: e instanceof ApiError ? e.message : String(e) }) }
+      return
+    }
     if (intent.kind === 'listen') {
       say({ role: 'assistant', text: 'Estou ouvindo. Fale agora.' })
       void get().startListen()

@@ -50,7 +50,19 @@ export interface VoiceTest { ok: boolean; latencyMs: number; voices: { id: strin
 export interface AgentStep { id: number; tool: string; why: string | null; risk: string; ok?: boolean; verified?: boolean | null; evidence?: string; error?: string; denied?: boolean; skipped?: boolean; summary?: string }
 export interface AgentResult { status: 'concluido' | 'parcial' | 'nao_concluido' | 'pergunta'; kind: string; text: string; notes: string[]; evidence: unknown[]; audit?: { verdict: string; reason: string } }
 export interface AgentJob { id: string; status: 'running' | 'awaiting' | 'done'; partial?: string | null; steps: AgentStep[]; pending: { id: string; tool: string; message: string } | null; result: AgentResult | null; provider: string | null }
-export interface AgentAccess { tools: Record<string, boolean>; roots: { path: string; label: string }[]; groups: Record<string, string> }
+export interface AgentAccess { tools: Record<string, boolean>; roots: { path: string; label: string }[]; groups: Record<string, string>; autoDev?: boolean }
+export type MissionStatus = 'planning' | 'running' | 'awaiting' | 'verifying' | 'concluido' | 'parcial' | 'nao_concluido' | 'cancelled' | 'interrupted'
+export interface MissionStep { id: string; title: string; role: string; depends: string[]; status: 'pending' | 'running' | 'done' | 'failed' | 'skipped' | 'asking' | 'replaced'; attempts: number; summary?: string; notes?: string[]; question?: string; toolCalls?: number }
+export interface MissionView {
+  id: string; goal: string; status: MissionStatus; phase: string; criteria: string[]; replans: number
+  limits: { maxMs: number; maxSteps: number; maxReplans: number; maxTokens: number }; usage: { inputTokens: number; outputTokens: number; calls: number }
+  steps: MissionStep[]; pending: { jobId: string; step?: string; id: string; tool: string; message: string }[]
+  active: { step?: string; role?: string; tools: string[]; provider?: string }[]
+  verification: { verdict?: string; text?: string } | null; final: { status: string; text: string; stepsDone: number; stepsTotal: number; verdict: string | null } | null
+  log: { at: string; kind: string; text: string }[]; startedAt?: string; updatedAt?: string
+}
+export interface MissionRow { id: string; goal: string; status: MissionStatus; phase: string; steps: number; done: number; createdAt: string }
+export interface MemoryItem { id: string; at: string; kind: string; text: string; source: string; confidence: string; tags: string[] }
 export interface DiskInfo { drive: string; label: string; totalGB: number; freeGB: number; usedGB: number; freePct: number | null }
 export interface MonitorView {
   summary: { cpu: { model?: string; logicalCores: number; usagePct: number | null }; memory: { totalGB: number; usedGB: number; freeGB: number; usedPct: number }; uptimeHours: number }
@@ -95,6 +107,16 @@ export const api = {
   timer: (action: 'start' | 'pause' | 'resume' | 'cancel', seconds?: number, label?: string) => call<TimerView>('POST', `timer/${action}`, action === 'start' ? { seconds, label } : {}),
   agentRun: (text: string, history: ChatTurn[], sensitive: boolean, confirm: boolean) => call<{ jobId: string }>('POST', 'agent/run', { text, history, sensitive, confirm }),
   agentJob: (id: string) => call<AgentJob>('GET', `agent/job?id=${encodeURIComponent(id)}`),
+  agentAutonomy: (autoDev: boolean) => call<{ autoDev: boolean }>('POST', 'agent/autonomy', { autoDev }),
+  missionStart: (goal: string, sensitive: boolean, confirm: boolean) => call<{ id: string }>('POST', 'mission/start', { goal, sensitive, confirm }),
+  missionView: (id: string) => call<MissionView>('GET', `mission/view?id=${encodeURIComponent(id)}`),
+  missionList: () => call<MissionRow[]>('GET', 'mission/list'),
+  missionCancel: (id: string) => call<{ ok: boolean }>('POST', 'mission/cancel', { id }),
+  missionConfirm: (id: string, approve: boolean) => call<{ confirmed: number }>('POST', 'mission/confirm', { id, approve }),
+  missionAnswer: (id: string, text: string) => call<{ ok: boolean }>('POST', 'mission/answer', { id, text }),
+  missionResume: (id: string) => call<{ ok: boolean }>('POST', 'mission/resume', { id }),
+  memory: () => call<MemoryItem[]>('GET', 'memory'),
+  memoryForget: (id: string) => call<{ ok: boolean }>('POST', 'memory/forget', { id }),
   agentCancel: (id: string) => call<{ ok: boolean }>('POST', 'agent/cancel', { id }),
   agentConfirm: (id: string, approve: boolean) => call<{ ok: boolean }>('POST', 'agent/confirm', { id, approve }),
   agentAccess: () => call<AgentAccess>('GET', 'agent/access'),

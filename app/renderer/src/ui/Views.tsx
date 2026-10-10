@@ -261,8 +261,8 @@ function MicAndBackground() {
   const stopListen = useApp((s) => s.stopListen)
   const voice = useApp((s) => s.voice)
   const [cfg, setCfg] = useState<AppSettings | null>(null)
-  useEffect(() => { void jv?.app.getSettings().then(setCfg) }, [jv])
-  if (!jv) return null
+  useEffect(() => { void jv?.app?.getSettings().then(setCfg) }, [jv])
+  if (!jv?.app) return null
   const set = (p: Parameters<typeof jv.app.setSettings>[0]) => void jv.app.setSettings(p).then(setCfg)
   return (
     <div className="panel form" style={{ marginTop: 16 }}>

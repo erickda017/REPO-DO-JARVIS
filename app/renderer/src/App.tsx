@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { Activity, Bot, Cpu, FolderGit2, Power, MessageSquare, Mic, Network, PanelLeftClose, PanelLeftOpen, Terminal } from 'lucide-react'
+import { Activity, Bot, Workflow, Cpu, FolderGit2, Power, MessageSquare, Mic, Network, PanelLeftClose, PanelLeftOpen, Terminal } from 'lucide-react'
 import { useApp, type View } from './store.ts'
 import { NeuralScene } from './neural/Scene.tsx'
 import { FloatingLayer } from './ui/Floating.tsx'
@@ -10,6 +10,7 @@ import { CodeView } from './ui/CodeView.tsx'
 import { ProjectsView } from './ui/ProjectsView.tsx'
 import { IaView } from './ui/IaView.tsx'
 import { AgentView } from './ui/AgentView.tsx'
+import { MissionsView } from './ui/MissionsView.tsx'
 import { AisView, ChatView, SystemView, VoiceView } from './ui/Views.tsx'
 
 const NAV: { id: View; label: string; icon: typeof Network }[] = [
@@ -18,6 +19,7 @@ const NAV: { id: View; label: string; icon: typeof Network }[] = [
   { id: 'code', label: 'Programar', icon: Terminal },
   { id: 'projects', label: 'Projetos', icon: FolderGit2 },
   { id: 'agent', label: 'Agente', icon: Bot },
+  { id: 'missions', label: 'Missões', icon: Workflow },
   { id: 'ia', label: 'IA local', icon: Power },
   { id: 'ais', label: 'IAs', icon: Cpu },
   { id: 'system', label: 'Sistema', icon: Activity },
@@ -63,7 +65,7 @@ export function App() {
     void pollAudit()
     void loadProjects()
     // Global hotkey / tray menu: start listening.
-    const offListen = window.jarvis?.app.onListen(() => void useApp.getState().startListen())
+    const offListen = window.jarvis?.app?.onListen(() => void useApp.getState().startListen())
     const a = setInterval(() => void refresh(), 4000)
     const b = setInterval(() => void pollAudit(), 1500)
     const c = setInterval(() => void probe(), 60000)
@@ -98,6 +100,7 @@ export function App() {
         {codeOpened && <div className="keep" hidden={view !== 'code'}><CodeView /></div>}
         {view === 'projects' && <ProjectsView />}
         {view === 'agent' && <AgentView />}
+        {view === 'missions' && <MissionsView />}
         {view === 'ia' && <IaView />}
         {view === 'ais' && <AisView />}
         {view === 'system' && <SystemView />}

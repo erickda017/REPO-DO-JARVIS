@@ -25,6 +25,9 @@ export function CommandBar({ large = false }: { large?: boolean }) {
           {opt(sensitive, 'sensitive', 'Sensível: o pedido nunca sai deste PC', Lock)}
           {opt(spend, 'spend', 'Autorizo gasto: permite provedores pagos', Wallet)}
           {opt(speak, 'speak', 'Falar a resposta em voz alta', Volume2)}
+          <button className="opt mic" data-state={listen} style={{ '--lvl': Math.min(1, listenLevel * 14) } as React.CSSProperties} onClick={() => (listen === 'idle' ? void startListen() : stopListen())} disabled={busy && listen === 'idle'} aria-pressed={listen !== 'idle'} title={listen === 'idle' ? 'Falar (Ctrl+Alt+J)' : 'Parar de ouvir'} aria-label={listen === 'idle' ? 'Falar com o JARVIS' : 'Parar de ouvir'}>
+            {listen === 'idle' ? <Mic size={15} /> : <MicOff size={15} />}
+          </button>
         </div>
         <textarea
           rows={large ? 2 : 3}
@@ -39,9 +42,6 @@ export function CommandBar({ large = false }: { large?: boolean }) {
             }
           }}
         />
-        <button className="mic" data-state={listen} style={{ '--lvl': Math.min(1, listenLevel * 14) } as React.CSSProperties} onClick={() => (listen === 'idle' ? void startListen() : stopListen())} disabled={busy && listen === 'idle'} aria-pressed={listen !== 'idle'} title={listen === 'idle' ? 'Falar (Ctrl+Alt+J)' : 'Parar de ouvir'} aria-label={listen === 'idle' ? 'Falar com o JARVIS' : 'Parar de ouvir'}>
-          {listen === 'idle' ? <Mic size={18} /> : <MicOff size={18} />}
-        </button>
         <button className="send" onClick={submit} disabled={busy || !text.trim()} aria-label="Enviar">
           {busy ? <span className="spinner" aria-hidden /> : <ArrowUp size={18} />}
         </button>
