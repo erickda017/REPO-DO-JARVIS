@@ -59,6 +59,37 @@ export function openaiCompatProvider(cfg, { fetch: fetchImpl = fetch, env = proc
       }
     },
 
+    /**
+     * Native tool calling (OpenAI format). `messages` are sent as they are (system / user / assistant with tool_calls /
+     * tool); yields { delta } for text, { tick } for any other sign of life, { usage }, and at the end
+     * { done, toolCalls: [{ id, type, function: { name, arguments } }], finishReason }.
+     */
+    async *chat({ model, messages, tools, toolChoice, maxTokens = 4096, signal }) {
+      const clean = messages.map((m) => (m.tool_calls ? { ...m, tool_calls: m.tool_calls.map(({ id, type, function: fn }) => ({ id, type: type ?? 'function', function: fn })) } : m))
+      const body = { model, messages: clean, stream: true, [cfg.tokenParam ?? 'max_tokens']: maxTokens }
+      if (tools?.length) { body.tools = tools; if (toolChoice) body.tool_choice = toolChoice }
+      const calls = []
+      let finishReason = null
+      for await (const ev of sse(fetchImpl, `${base()}/chat/completions`, { headers: headers(), body: JSON.stringify(body), idleTimeoutMs: cfg.inferTimeoutMs ?? 120000, provider: cfg.id, signal })) {
+        if (ev.error) throw new ProviderError('bad_response', String(ev.error.message ?? 'stream error').slice(0, 160), { provider: cfg.id })
+        const ch = ev.choices?.[0]
+        const d = ch?.delta ?? ch?.message ?? {}
+        if (typeof d.content === 'string' && d.content) yield { delta: d.content }
+        for (const tc of d.tool_calls ?? []) {
+          const i = tc.index ?? calls.length
+          const c = (calls[i] ??= { id: '', type: 'function', function: { name: '', arguments: '' } })
+          if (tc.id) c.id = tc.id
+          if (tc.function?.name) c.function.name += tc.function.name
+          if (tc.function?.arguments) c.function.arguments += typeof tc.function.arguments === 'string' ? tc.function.arguments : JSON.stringify(tc.function.arguments)
+          yield { tick: true }
+        }
+        if (ch?.finish_reason) finishReason = ch.finish_reason
+        if (ev.usage) yield { usage: { inputTokens: ev.usage.prompt_tokens, outputTokens: ev.usage.completion_tokens } }
+      }
+      const toolCalls = calls.filter((c) => c?.function?.name).map((c, i) => ({ ...c, id: c.id || `call_${i}_${Math.random().toString(36).slice(2, 10)}`, function: { name: c.function.name, arguments: c.function.arguments || '{}' } }))
+      yield { done: true, toolCalls, finishReason: toolCalls.length ? 'tool_calls' : (finishReason ?? 'stop') }
+    },
+
     async infer({ model, prompt, messages: history, system, maxTokens = 512 }) {
       const messages = [...(system ? [{ role: 'system', content: system }] : []), ...(history ?? [{ role: 'user', content: prompt }])]
       const res = await request(fetchImpl, `${base()}/chat/completions`, {

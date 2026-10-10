@@ -66,6 +66,59 @@ export function createOpenAiApi({ router, registry, file, flags, audit }) {
   /** Flatten any message content into text (clients may send [{type:'text',text}] parts). */
   const text = (c) => (typeof c === 'string' ? c : Array.isArray(c) ? c.map((p) => (typeof p === 'string' ? p : p?.text ?? '')).join('') : '')
 
+  async function toolChat(b, msgs, req, res) {
+    const ctrl = new AbortController()
+    res.on('close', () => ctrl.abort())
+    const request = {
+      messages: msgs, tools: Array.isArray(b.tools) ? b.tools.slice(0, 128) : undefined, toolChoice: b.tool_choice,
+      maxTokens: Math.min(Number(b.max_tokens ?? b.max_completion_tokens) || 4096, 16384), confirmSpend: flags.get('routerSpend') === true,
+      providerId: registry.get(String(b.model)) ? String(b.model) : undefined, fast: true, signal: ctrl.signal,
+    }
+    const id = 'chatcmpl-' + randomBytes(8).toString('hex')
+    const created = Math.floor(Date.now() / 1000)
+    const it = router.chatStream(request)[Symbol.asyncIterator]()
+    let first = await it.next() // a failure before any output becomes a normal HTTP error
+    let model = 'jarvis/auto'
+    const tail = (ev) => {
+      const u = ev.usage ?? {}
+      return { usage: { prompt_tokens: u.inputTokens ?? 0, completion_tokens: u.outputTokens ?? 0, total_tokens: (u.inputTokens ?? 0) + (u.outputTokens ?? 0) } }
+    }
+    try {
+      if (b.stream === true) {
+        res.writeHead(200, { 'content-type': 'text/event-stream', 'cache-control': 'no-store', 'x-accel-buffering': 'no' })
+        const chunk = (delta, finish = null, extra = {}) => res.write(`data: ${JSON.stringify({ id, object: 'chat.completion.chunk', created, model, choices: [{ index: 0, delta, finish_reason: finish }], ...extra })}\n\n`)
+        for (let ev = first; !ev.done; ev = await it.next()) {
+          const v = ev.value
+          if (v.start) { model = `${v.provider}/${v.model}`; chunk({ role: 'assistant', content: '' }) }
+          else if (v.delta) chunk({ content: v.delta })
+          else if (v.error) { res.write(`data: ${JSON.stringify({ error: { message: v.error.message, type: 'provider_error' } })}\n\n`); chunk({}, 'error') }
+          else if (v.done) {
+            if (v.toolCalls.length) chunk({ tool_calls: v.toolCalls.map((c, index) => ({ index, ...c })) })
+            chunk({}, v.finishReason, tail(v))
+            audit?.record('router.openai', { provider: v.provider, model: v.model, ok: true, stream: true, tools: true })
+          }
+        }
+        res.end('data: [DONE]\n\n')
+        return
+      }
+      let text = '', done = null
+      for (let ev = first; !ev.done; ev = await it.next()) {
+        const v = ev.value
+        if (v.start) model = `${v.provider}/${v.model}`
+        else if (v.delta) text += v.delta
+        else if (v.error) throw Object.assign(new Error(v.error.message), { status: 502 })
+        else if (v.done) done = v
+      }
+      audit?.record('router.openai', { provider: done.provider, model: done.model, ok: true, tools: true })
+      send(res, 200, { id, object: 'chat.completion', created, model, choices: [{ index: 0, message: { role: 'assistant', content: text || null, ...(done.toolCalls.length ? { tool_calls: done.toolCalls } : {}) }, finish_reason: done.finishReason }], ...tail(done) }, { 'x-jarvis-provider': done.provider })
+    } catch (e) {
+      if (res.headersSent) { if (!ctrl.signal.aborted) res.write(`data: ${JSON.stringify({ error: { message: String(e?.message ?? e).slice(0, 300), type: 'provider_error' } })}\n\n`); res.end('data: [DONE]\n\n') }
+      else throw e
+    } finally {
+      await it.return?.()
+    }
+  }
+
   return {
     token: loadToken,
     async handle(req, res) {
@@ -85,6 +138,11 @@ export function createOpenAiApi({ router, registry, file, flags, audit }) {
           const b = await readBody(req)
           const msgs = Array.isArray(b.messages) ? b.messages : []
           if (!msgs.length) return err(res, 400, 'messages is required'), true
+          // Native function calling (tools / tool_calls / tool messages): passed through, with the same failover and spend gate.
+          if ((Array.isArray(b.tools) && b.tools.length) || msgs.some((m) => m.role === 'tool' || m.tool_calls)) {
+            await toolChat(b, msgs, req, res)
+            return true
+          }
           const system = msgs.filter((m) => m.role === 'system').map((m) => text(m.content)).join('\n\n') || undefined
           let turns = msgs.filter((m) => m.role !== 'system').map((m) => ({ role: m.role === 'assistant' ? 'assistant' : 'user', content: text(m.content) || '(vazio)' }))
           if (turns.at(-1)?.role !== 'user') turns = [...turns, { role: 'user', content: 'Continue.' }]

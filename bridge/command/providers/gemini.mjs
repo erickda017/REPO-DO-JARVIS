@@ -23,6 +23,60 @@ export function thinkingFor(model) {
 }
 const refusedThinking = (e) => e instanceof ProviderError && e.kind === 'bad_request' && /think/i.test(e.message)
 
+// ── native tool calling: OpenAI-format messages and tools <-> Gemini contents and functionDeclarations ──────────────────
+const SCHEMA_KEYS = new Set(['type', 'format', 'description', 'nullable', 'enum', 'properties', 'required', 'items', 'minItems', 'maxItems', 'minimum', 'maximum', 'title'])
+/** JSON Schema -> the OpenAPI subset Gemini accepts (it rejects additionalProperties, $schema, default, anyOf...). */
+export function geminiSchema(s) {
+  if (!s || typeof s !== 'object') return { type: 'object', properties: {} }
+  if (Array.isArray(s)) return s.map(geminiSchema)
+  const out = {}
+  for (const [k, v] of Object.entries(s)) {
+    if (!SCHEMA_KEYS.has(k)) continue
+    if (k === 'type' && Array.isArray(v)) { out.type = v.find((t) => t !== 'null') ?? 'string'; if (v.includes('null')) out.nullable = true }
+    else if (k === 'properties') out.properties = Object.fromEntries(Object.entries(v).map(([n, p]) => [n, geminiSchema(p)]))
+    else if (k === 'items') out.items = geminiSchema(v)
+    else out[k] = v
+  }
+  if (out.type === 'object' && !out.properties) out.properties = {}
+  if (!out.type && !out.properties && !out.items && !out.enum) out.type = 'string'
+  return out
+}
+const parseArgs = (a) => { try { const v = typeof a === 'string' ? JSON.parse(a || '{}') : a; return v && typeof v === 'object' && !Array.isArray(v) ? v : {} } catch { return {} } }
+
+export function toGeminiRequest({ messages, tools, toolChoice, maxTokens }, model) {
+  const system = messages.filter((m) => m.role === 'system').map((m) => (typeof m.content === 'string' ? m.content : (m.content ?? []).map((p) => p.text ?? '').join(''))).join('\n\n')
+  const names = new Map() // tool_call_id -> function name, to label the functionResponse of a later tool message
+  const contents = []
+  const push = (role, parts) => { if (!parts.length) return; const last = contents.at(-1); if (last?.role === role) last.parts.push(...parts); else contents.push({ role, parts }) }
+  const textOf = (c) => (typeof c === 'string' ? c : Array.isArray(c) ? c.map((p) => p?.text ?? '').join('') : '')
+  for (const m of messages) {
+    if (m.role === 'system') continue
+    if (m.role === 'assistant') {
+      const parts = []
+      if (textOf(m.content)) parts.push({ text: textOf(m.content) })
+      for (const tc of m.tool_calls ?? []) {
+        names.set(tc.id, tc.function.name)
+        parts.push({ functionCall: { name: tc.function.name, args: parseArgs(tc.function.arguments) }, ...(tc.thoughtSignature ? { thoughtSignature: tc.thoughtSignature } : {}) })
+      }
+      push('model', parts)
+    } else if (m.role === 'tool') {
+      push('user', [{ functionResponse: { name: names.get(m.tool_call_id) ?? m.name ?? 'tool', response: { content: textOf(m.content) } } }])
+    } else push('user', [{ text: textOf(m.content) || '(vazio)' }])
+  }
+  if (contents.length && contents[0].role !== 'user') contents.unshift({ role: 'user', parts: [{ text: '(início)' }] })
+  const generationConfig = { maxOutputTokens: maxTokens }
+  const thinking = thinkingFor(model)
+  if (thinking) generationConfig.thinkingConfig = thinking
+  const body = { contents, generationConfig }
+  if (system) body.systemInstruction = { parts: [{ text: system }] }
+  if (tools?.length) {
+    body.tools = [{ functionDeclarations: tools.map((t) => ({ name: t.function.name, description: String(t.function.description ?? '').slice(0, 1000), parameters: geminiSchema(t.function.parameters) })) }]
+    const forced = toolChoice && typeof toolChoice === 'object' ? toolChoice.function?.name : null
+    body.toolConfig = { functionCallingConfig: toolChoice === 'required' ? { mode: 'ANY' } : toolChoice === 'none' ? { mode: 'NONE' } : forced ? { mode: 'ANY', allowedFunctionNames: [forced] } : { mode: 'AUTO' } }
+  }
+  return body
+}
+
 export function geminiProvider(cfg, { fetch: fetchImpl = fetch, env = process.env } = {}) {
   const baseUrl = (cfg.baseUrl ?? 'https://generativelanguage.googleapis.com/v1beta').replace(/\/+$/, '')
   const keyName = cfg.apiKeyEnv ?? 'GEMINI_API_KEY'
@@ -68,6 +122,35 @@ export function geminiProvider(cfg, { fetch: fetchImpl = fetch, env = process.en
             if (t) { started = true; yield { delta: t } }
             if (ev.usageMetadata?.candidatesTokenCount) yield { usage: { inputTokens: ev.usageMetadata.promptTokenCount, outputTokens: ev.usageMetadata.candidatesTokenCount } }
           }
+          return
+        } catch (err) {
+          if (!started && attempt === 0 && thinkingFor(model) && refusedThinking(err)) { noThinking.add(bare(model)); continue }
+          throw err
+        }
+      }
+    },
+
+    /** Same event contract as the OpenAI-compatible adapter: { delta } | { tick } | { usage } | { done, toolCalls, finishReason }. */
+    async *chat(req) {
+      if (!key()) throw new ProviderError('auth', `${keyName} is not set`, { provider: cfg.id })
+      const { model, maxTokens = 4096, signal } = req
+      for (let attempt = 0; ; attempt++) {
+        let started = false
+        const toolCalls = []
+        let finishReason = null
+        try {
+          for await (const ev of sse(fetchImpl, `${baseUrl}/models/${encodeURIComponent(bare(model))}:streamGenerateContent?alt=sse`, { headers: headers(), body: JSON.stringify(toGeminiRequest({ ...req, maxTokens }, model)), idleTimeoutMs: cfg.inferTimeoutMs ?? 60000, provider: cfg.id, signal })) {
+            const cand = ev.candidates?.[0]
+            for (const p of cand?.content?.parts ?? []) {
+              if (p.functionCall) { started = true; toolCalls.push({ id: `call_${toolCalls.length}_${Math.random().toString(36).slice(2, 10)}`, type: 'function', function: { name: p.functionCall.name, arguments: JSON.stringify(p.functionCall.args ?? {}) }, ...(p.thoughtSignature ? { thoughtSignature: p.thoughtSignature } : {}) }); yield { tick: true } }
+              else if (p.text && !p.thought) { started = true; yield { delta: p.text } }
+              else yield { tick: true }
+            }
+            if (cand?.finishReason) finishReason = cand.finishReason
+            if (ev.usageMetadata?.candidatesTokenCount) yield { usage: { inputTokens: ev.usageMetadata.promptTokenCount, outputTokens: ev.usageMetadata.candidatesTokenCount } }
+            if (!cand && ev.promptFeedback?.blockReason) throw new ProviderError('bad_response', `blocked (${ev.promptFeedback.blockReason})`, { provider: cfg.id })
+          }
+          yield { done: true, toolCalls, finishReason: toolCalls.length ? 'tool_calls' : finishReason === 'MAX_TOKENS' ? 'length' : 'stop' }
           return
         } catch (err) {
           if (!started && attempt === 0 && thinkingFor(model) && refusedThinking(err)) { noThinking.add(bare(model)); continue }

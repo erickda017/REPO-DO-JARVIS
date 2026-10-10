@@ -222,6 +222,71 @@ export function createRouter({ registry, health, audit, clock = Date.now, cooldo
     throw new RouteError(last && attempts.filter((a) => a.error).length === 1 ? `${last.provider} failed: ${last.message}` : 'all eligible providers failed', attempts)
   }
   /**
+   * Chat with NATIVE tool calling (OpenAI-format messages in, text and tool calls out), same eligibility, spend gate and
+   * failover as runStream. Only providers whose adapter implements `chat` take part. Events:
+   *   { start, provider, model } -> { delta }... -> { done, toolCalls, finishReason, usage, provider, model, attempts }
+   * Failover happens until the first sign of life (text or the start of a tool call); the first-token watchdog of
+   * `fast` requests applies to external providers.
+   */
+  async function* chatStream(request) {
+    const req = { capability: 'chat', sensitive: false, confirmSpend: false, ...request }
+    if (!Array.isArray(req.messages) || req.messages.length === 0) throw new ProviderError('bad_request', 'messages is required')
+    const { list, skipped } = eligible(req)
+    const attempts = [...skipped]
+    const capable = list.filter((p) => typeof p.adapter.chat === 'function' || (attempts.push({ provider: p.id, skipped: 'no native tool calling' }), false))
+    if (capable.length === 0) {
+      const apisOnly = skipped.some((s) => /APIs-only/.test(s.skipped))
+      throw new RouteError(apisOnly ? 'Modo "só APIs" ligado e nenhuma API pronta: ligue uma na tela IAs, com chave e modelo.' : 'no eligible provider with tool calling (enable Gemini, OpenRouter, NVIDIA, Groq, OpenAI or another OpenAI-compatible API on the IAs screen)', attempts)
+    }
+    const usable = spendFilter(capable, req, attempts)
+    const t0 = clock()
+    for (const { p, model } of planFor(usable, req)) {
+      if (!model) { attempts.push({ provider: p.id, skipped: 'no model configured' }); continue }
+      if (modelCooling(p, model)) continue
+      if (attempts.some((a) => a.error) && clock() - t0 > (req.deadlineMs ?? 240_000)) { attempts.push({ provider: p.id, skipped: 'tempo total esgotado' }); break }
+      const ctrl = new AbortController()
+      const relay = () => ctrl.abort()
+      req.signal?.addEventListener('abort', relay, { once: true })
+      let slow = false, started = false, usage
+      const watchdog = req.fast && p.external ? setTimeout(() => { slow = true; ctrl.abort() }, req.firstTokenMs ?? 20_000) : null
+      let text = false
+      try {
+        for await (const ev of p.adapter.chat({ model, messages: req.messages, tools: req.tools, toolChoice: req.toolChoice, maxTokens: req.maxTokens, signal: ctrl.signal })) {
+          if (ev.delta || ev.tick) {
+            if (!started) { started = true; clearTimeout(watchdog); yield { start: true, provider: p.id, model } }
+            if (ev.delta) { text = true; yield { delta: ev.delta } }
+          } else if (ev.usage) usage = ev.usage
+          else if (ev.done) {
+            if (!started && ev.toolCalls.length === 0) throw new ProviderError('bad_response', 'empty answer', { provider: p.id })
+            if (!started) { started = true; yield { start: true, provider: p.id, model } }
+            audit?.record('ai.infer', { provider: p.id, model, ok: true, stream: true, tools: true })
+            note(p, true, clock() - t0, usage)
+            attempts.push({ provider: p.id, ok: true })
+            yield { done: true, toolCalls: ev.toolCalls, finishReason: ev.finishReason, usage, attempts, provider: p.id, model, text }
+            return
+          }
+        }
+        throw new ProviderError('bad_response', 'stream ended without a result', { provider: p.id })
+      } catch (err) {
+        if (req.signal?.aborted) throw new RouteError('cancelled', attempts)
+        const e = slow && !started ? new ProviderError('timeout', `sem resposta em ${(req.firstTokenMs ?? 20_000) / 1000} s`, { provider: p.id }) : err instanceof ProviderError ? err : new ProviderError('network', String(err?.message ?? err), { provider: p.id })
+        health?.pushError(p.id, e)
+        note(p, false)
+        if (e.retryable || SKIPPABLE.has(e.kind)) cooldown.set(coolKey(p, model, e), clock() + coolFor(e))
+        attempts.push({ provider: p.id, model, error: e.toJSON() })
+        audit?.record('ai.infer', { provider: p.id, model, ok: false, stream: true, tools: true, kind: e.kind })
+        if (started) { yield { error: e.toJSON(), partial: true, attempts }; return }
+        if ((!e.retryable && !SKIPPABLE.has(e.kind)) || !p.allowFallback) throw new RouteError(`${p.id} failed: ${e.message}`, attempts)
+      } finally {
+        clearTimeout(watchdog)
+        req.signal?.removeEventListener('abort', relay)
+      }
+    }
+    const last = [...attempts].reverse().find((a) => a.error)?.error
+    throw new RouteError(last && attempts.filter((a) => a.error).length === 1 ? `${last.provider} failed: ${last.message}` : 'all eligible providers failed', attempts)
+  }
+
+  /**
    * Ask a decision provider (capability "decision", e.g. Jev) structured
    * questions about some content. Same gates as `run`; never falls back to a
    * text generator, because a probability is not a sentence.
@@ -309,5 +374,5 @@ export function createRouter({ registry, health, audit, clock = Date.now, cooldo
     return { ...out, routing }
   }
 
-  return { run, runStream, decide, smartRun, eligible, stats: snapshotStats }
+  return { run, runStream, chatStream, decide, smartRun, eligible, stats: snapshotStats }
 }
