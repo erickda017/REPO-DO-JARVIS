@@ -42,7 +42,7 @@ sh('npm install --omit=dev --ignore-scripts --no-audit --no-fund', stage)
 
 await build({
   projectDir: root,
-  targets: Platform.WINDOWS.createTarget((process.env.JARVIS_TARGETS ?? 'nsis,portable,msi').split(',')),
+  targets: Platform.WINDOWS.createTarget((process.env.JARVIS_TARGETS ?? 'msi,portable').split(',')),
   publish: 'never',
   config: {
     appId: 'app.jarvis.command-center',

@@ -120,22 +120,23 @@ graph, activity spreading, health tone, command parsing). Preview: `docs/app-hom
 
 ### Installer (Windows)
 
-`npm run app:dist` builds, into `release/out/` (git-ignored):
-- `JARVIS-Setup-0.1.0.exe` (~192 MB), per-user NSIS installer (no admin rights, choose folder, desktop shortcut, uninstaller).
-- `JARVIS-Portable-0.1.0.exe` (~192 MB), single file, no install; it unpacks to a temp folder on every launch so the first screen takes a while.
+`npm run app:dist` builds into `release/out/` (git-ignored; env `JARVIS_VERSION`, `JARVIS_TARGETS=msi,portable,nsis`):
+- `J.A.R.V.I.S <version>.msi` (~214 MB), per-user Windows Installer package (no admin rights, desktop and Start-menu
+  shortcuts). **Running a newer MSI over an installed version updates it in place**: same folder, one uninstall entry, the
+  old files replaced, your data untouched. Verified here: 0.2.2 -> 0.2.3 by `msiexec /i ... /qn`, exit code 0, a single
+  entry `J.A.R.V.I.S 0.2.3.0`, same `%LOCALAPPDATA%\Programs\J.A.R.V.I.S`, `%APPDATA%\J.A.R.V.I.S\command.config.json`
+  unchanged, and the updated app launches and reaches the bridge. Install: double-click, or `msiexec /i "<file>.msi" /qn`.
+- `JARVIS-Portable-<version>.exe`, single file, no install (unpacks to a temp folder on each launch, so it starts slowly).
+- NSIS (`.exe` installer) is no longer built by default: its 3.0.4.1 stub crashed with 0xC0000374 on this PC and an
+  update over an existing install hung after removing the old version. Add `nsis` to `JARVIS_TARGETS` to build it anyway.
 
-Packaging uses a small staging project (`release/stage`) so only the bridge's three runtime packages ship. Installed
-builds keep their config and data in `%APPDATA%\J.A.R.V.I.S\` (`command.config.json`, copied on first run from the
-config that existed when the installer was built, and `data/` with tasks, timer, audit log and the ElevenLabs key).
-Edit that copy to change providers, ports or services.
-
-Verified on this PC: the unpacked app, the portable exe, and a silent install / launch / uninstall cycle of the
-installer (files, Start-menu and desktop shortcuts, registry entry and removal all correct).
-Known issues: **the installer process exits with code `-1073740940` (0xC0000374) in silent mode** after finishing the
-install, reproduced three times, cause not found (the GUI wizard path was not exercised); the binaries are **not
-code-signed**, so Windows SmartScreen will warn; it still bundles the Claude Agent SDK (~264 MB unpacked) because the
-bridge imports it, so the original Claude-driven HUD brain stays available; the icon is a generated placeholder.
-
+Installed builds keep config and data per user in `%APPDATA%\J.A.R.V.I.S\` (`command.config.json` copied on first run from a
+sanitised default, `data/` with tasks, timer, audit, ElevenLabs key and API keys, `projects.json`, `code.json`).
+Known issues: the WiX linker prints a harmless-looking `light.exe` cleanup error (`DeleteTempFiles`) after producing the
+MSI, so the build script exits non-zero even though the `.msi` is complete and installs fine; binaries are **not
+code-signed** (SmartScreen warns); the Claude Agent SDK (~264 MB unpacked) is bundled because the bridge imports it;
+the icon is a generated placeholder; a granted project folder belongs to one installation (the installed app starts
+with none).
 - **Home** is a 3D neural scene. Big nodes = real entities (router core, AIs,
   services, projects, tasks, timer, voice) coloured by measured state; a pulse
   travels from the core to the AI/service that actually did the work (read from
