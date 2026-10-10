@@ -378,3 +378,7 @@ input, select { border-radius: var(--r-sm); }
 .disk[data-low='true'] .bar i { background: var(--warn); }
 
 .envbox { margin: 8px 0; padding: 12px 14px; background: #030a10; border: 1px solid rgba(92,214,255,.2); border-radius: var(--r-md); font: 13px/1.6 Consolas, monospace; color: var(--cyan-hi); overflow: auto; user-select: all; }
+
+/* long paths/URLs must wrap instead of overflowing */
+.msg-text, .card-text, .row-panel h2, .caption { overflow-wrap: anywhere; }
+.caption-wrap { max-height: 38vh; overflow: auto; }

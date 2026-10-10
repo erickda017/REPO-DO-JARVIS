@@ -20,7 +20,8 @@ import { ProviderError, RouteError } from './errors.mjs'
 export function createRouter({ registry, health, audit, clock = Date.now, cooldownMs = 30_000 }) {
   const cooldown = new Map() // id -> until (ms)
   // An empty account will not refill in a minute: keep it out of rotation for 10 min, so traffic flows to the next provider.
-  const coolFor = (e) => (e.kind === 'quota' ? 10 * 60_000 : cooldownMs)
+  const SKIPPABLE = new Set(['auth', 'model_not_found', 'bad_response', 'unconfigured'])
+  const coolFor = (e) => (e.kind === 'quota' ? 10 * 60_000 : e.kind === 'auth' ? 5 * 60_000 : cooldownMs)
 
   /**
    * Paid providers are simply left out of a request the owner has not authorised to spend money on, so a local model
@@ -62,10 +63,11 @@ export function createRouter({ registry, health, audit, clock = Date.now, cooldo
     const req = { capability: 'chat', sensitive: false, confirmSpend: false, ...request }
     if (req.messages !== undefined) {
       const m = req.messages
+      const limit = req.messageLimit ?? 8000
       const valid =
         Array.isArray(m) && m.length > 0 && m.length <= 40 && m.at(-1).role === 'user' &&
-        m.every((x) => (x?.role === 'user' || x?.role === 'assistant') && typeof x.content === 'string' && x.content.length > 0 && x.content.length <= 8000)
-      if (!valid) throw new ProviderError('bad_request', 'messages must be 1-40 user/assistant turns ending with a user turn (<= 8000 chars each)')
+        m.every((x) => (x?.role === 'user' || x?.role === 'assistant') && typeof x.content === 'string' && x.content.length > 0 && x.content.length <= limit)
+      if (!valid) throw new ProviderError('bad_request', 'messages must be 1-40 user/assistant turns ending with a user turn (<= limit chars each)')
       req.prompt = m.at(-1).content // used for triage and audit length only
     }
     if (!req.prompt || typeof req.prompt !== 'string') {
@@ -93,13 +95,15 @@ export function createRouter({ registry, health, audit, clock = Date.now, cooldo
       } catch (err) {
         const e = err instanceof ProviderError ? err : new ProviderError('network', String(err?.message ?? err), { provider: p.id })
         health?.pushError(p.id, e)
-        if (e.retryable) cooldown.set(p.id, clock() + coolFor(e))
+        if (e.retryable || SKIPPABLE.has(e.kind)) cooldown.set(p.id, clock() + coolFor(e))
         attempts.push({ provider: p.id, error: e.toJSON() })
         audit?.record('ai.infer', { provider: p.id, model, ok: false, kind: e.kind, promptChars: req.prompt.length })
-        if (!e.retryable || !p.allowFallback) throw new RouteError(`${p.id} failed: ${e.message}`, attempts)
+        // A missing/expired key, a wrong model or an empty answer is THIS provider's problem: the next one still answers.
+        if ((!e.retryable && !SKIPPABLE.has(e.kind)) || !p.allowFallback) throw new RouteError(`${p.id} failed: ${e.message}`, attempts)
       }
     }
-    throw new RouteError('all eligible providers failed', attempts)
+    const last = [...attempts].reverse().find((a) => a.error)?.error
+    throw new RouteError(last && attempts.filter((a) => a.error).length === 1 ? `${last.provider} failed: ${last.message}` : 'all eligible providers failed', attempts)
   }
 
   /**
@@ -129,10 +133,11 @@ export function createRouter({ registry, health, audit, clock = Date.now, cooldo
       } catch (err) {
         const e = err instanceof ProviderError ? err : new ProviderError('network', String(err?.message ?? err), { provider: p.id })
         health?.pushError(p.id, e)
-        if (e.retryable) cooldown.set(p.id, clock() + coolFor(e))
+        if (e.retryable || SKIPPABLE.has(e.kind)) cooldown.set(p.id, clock() + coolFor(e))
         attempts.push({ provider: p.id, error: e.toJSON() })
         audit?.record('ai.decide', { provider: p.id, model, ok: false, kind: e.kind })
-        if (!e.retryable || !p.allowFallback) throw new RouteError(`${p.id} failed: ${e.message}`, attempts)
+        // A missing/expired key, a wrong model or an empty answer is THIS provider's problem: the next one still answers.
+        if ((!e.retryable && !SKIPPABLE.has(e.kind)) || !p.allowFallback) throw new RouteError(`${p.id} failed: ${e.message}`, attempts)
       }
     }
     throw new RouteError('all eligible decision providers failed', attempts)

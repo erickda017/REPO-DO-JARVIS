@@ -88,6 +88,7 @@ async function askAgent(history: ChatTurn[], sensitive: boolean, spend: boolean,
 }
 
 const seenAlerts = new Set<string>()
+let refreshing = false, polling = false, probing = false, dismissedJob = ''
 let seq = 0
 const MAX_CARDS = 7
 const seen = new Set<string>()
@@ -108,10 +109,10 @@ export const useApp = create<State>((set, get) => ({
   speak: false,
   caption: null,
   job: null,
-  dismissJob: () => set({ job: null }),
+  dismissJob: () => { dismissedJob = get().job?.id ?? ''; set({ job: null }) },
   confirmJob: async (approve) => {
     const p = get().job?.pending
-    if (p) await api.agentConfirm(p.id, approve).catch(() => {})
+    if (p) await api.agentConfirm(p.id, approve).catch((e) => get().addCard('Não consegui enviar sua resposta', { type: 'text', text: String(e?.message ?? e) }))
   },
   collapsed: (() => { try { return localStorage.getItem('jarvis.sidebar') === 'collapsed' } catch { return false } })(),
   toggleSidebar: () =>
@@ -153,6 +154,8 @@ export const useApp = create<State>((set, get) => ({
   toggle: (k) => set((s) => ({ [k]: !s[k] }) as Partial<State>),
 
   refresh: async () => {
+    if (refreshing) return
+    refreshing = true
     try {
       const [overview, voice] = await Promise.all([api.overview(), api.voice().catch(() => null)])
       set({ overview, voice, bridgeOk: true })
@@ -165,27 +168,35 @@ export const useApp = create<State>((set, get) => ({
       }).catch(() => {})
     } catch {
       set({ bridgeOk: false })
+    } finally {
+      refreshing = false
     }
   },
 
   /** Free health checks (no inference, no spend) so the screen shows measured state, not "never checked". */
   probe: async () => {
     const ov = get().overview ?? (await api.overview().catch(() => null))
-    if (!ov) return
+    if (!ov || probing) return
+    probing = true
     for (const p of ov.providers.filter((x) => x.enabled)) {
       await api.check(p.id).then(() => get().pulse(`ai:${p.id}`)).catch(() => {})
     }
     for (const s of ov.services) await api.checkService(s.id).then(() => get().pulse(`svc:${s.id}`)).catch(() => {})
+    probing = false
     await get().refresh()
   },
 
   /** New bridge audit entries become pulses on the node that did the work. The first poll only primes the set. */
   pollAudit: async () => {
+    if (polling) return
+    polling = true
     let entries: AuditEntry[]
     try {
       entries = await api.audit()
     } catch {
       return
+    } finally {
+      polling = false
     }
     for (const e of [...entries].reverse()) {
       const key = `${e.at}|${e.action}|${String(e.provider ?? e.id ?? '')}`
@@ -258,8 +269,9 @@ export const useApp = create<State>((set, get) => ({
         case 'chat': {
           const history: ChatTurn[] = get()
             .messages.filter((m): m is Message & { role: 'user' | 'assistant' } => m.role !== 'error')
+            .slice(-20) // the whole session is not re-sent on every request
             .map((m) => ({ role: m.role, content: m.text }))
-          const r = await askAgent(history, st.sensitive, st.spend, (job) => set({ job: job.steps.length || job.pending ? job : null }))
+          const r = await askAgent(history, st.sensitive, st.spend, (job) => set({ job: job.id !== dismissedJob && (job.steps.length || job.pending) ? job : null }))
           get().pulse('core')
           get().pulse(`ai:${r.provider}`)
           say({ role: 'assistant', text: r.text, meta: r.meta })
@@ -276,7 +288,9 @@ export const useApp = create<State>((set, get) => ({
                         const u = new SpeechSynthesisUtterance(r.text)
                         u.lang = 'pt-BR'
                         u.onend = u.onerror = () => done()
+                        speechSynthesis.cancel()
                         speechSynthesis.speak(u)
+                        setTimeout(done, Math.min(Math.max(6000, r.text.length * 120), 60000)) // no installed voice = no onend
                       }),
               )
             : new Promise<void>((done) => setTimeout(done, Math.min(Math.max(4000, r.text.length * 65), 25000)))
@@ -288,6 +302,7 @@ export const useApp = create<State>((set, get) => ({
       }
     } catch (e) {
       say({ role: 'error', text: e instanceof ApiError ? e.message : String(e) })
+      set({ job: null }) // never leave a spinner behind after a failure
     } finally {
       set({ busy: false })
       void get().refresh()

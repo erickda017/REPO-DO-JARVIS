@@ -9,7 +9,7 @@ export function CommandBar({ large = false }: { large?: boolean }) {
   const [text, setText] = useState('')
   const { send, busy, sensitive, spend, speak, toggle } = useApp()
   const submit = () => {
-    if (!text.trim()) return
+    if (busy || !text.trim()) return // keep what was typed while an agent task is running
     void send(text)
     setText('')
   }

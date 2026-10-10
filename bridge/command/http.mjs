@@ -53,7 +53,7 @@ export function raiseForStatus(res, provider) {
   let err = classifyStatus(res.status, provider)
   const hint = res.json?.error?.message ?? res.json?.message
   // A 429 that talks about quota or billing is not "try again in a minute": it is "this account is empty".
-  if (err.kind === 'rate_limit' && /quota|billing|insufficient|credit|exhaust/i.test(`${hint ?? ''} ${res.text.slice(0, 400)}`)) {
+  if ((err.kind === 'rate_limit' || err.kind === 'bad_request') && /quota|billing|insufficient|credit|exhaust/i.test(`${hint ?? ''} ${res.text.slice(0, 400)}`)) {
     err = new ProviderError('quota', 'quota or credit exhausted (HTTP 429)', { status: res.status, provider })
   }
   if (typeof hint === 'string') err.message += `: ${redactString(hint).slice(0, 160)}`

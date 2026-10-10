@@ -18,10 +18,10 @@ export function ChatView() {
   return (
     <div className="page chat">
       <div className="chat-scroll" ref={scroller}>
-        {messages.length === 0 && <p className="dim empty">Conversa sem Claude: as respostas vÃªm da IA elegÃ­vel pelo roteador (local por padrÃ£o).</p>}
+        {messages.length === 0 && <p className="dim empty">Conversa sem Claude: as respostas vêm da IA elegível pelo roteador (local por padrão).</p>}
         {messages.map((m, i) => (
           <div key={i} className="msg" data-role={m.role}>
-            <div className="msg-who">{m.role === 'user' ? 'VocÃª' : m.role === 'error' ? 'Erro' : 'JARVIS'}</div>
+            <div className="msg-who">{m.role === 'user' ? 'Você' : m.role === 'error' ? 'Erro' : 'JARVIS'}</div>
             <div className="msg-text">{m.text}</div>
             {m.meta && <div className="dim small">{m.meta}</div>}
           </div>
@@ -156,18 +156,18 @@ export function SystemView() {
   const [secs, setSecs] = useState('300')
   const [err, setErr] = useState('')
   const guard = (fn: () => Promise<unknown>) => () => void fn().then(() => setErr('')).catch((e) => setErr(e instanceof ApiError ? e.message : String(e))).finally(() => void refresh())
-  if (!ov) return <div className="page"><p className="dim">Aguardando o bridgeâ€¦</p></div>
+  if (!ov) return <div className="page"><p className="dim">Aguardando o bridge…</p></div>
   return (
     <div className="page grid2">
       <section>
-        <h1>ServiÃ§os e projetos</h1>
+        <h1>Serviços e projetos</h1>
         <ul className="stack">
           {ov.services.map((s) => (
             <li key={s.id} className="panel row-panel">
               <span className="dot big" data-tone={s.status === 'up' ? 'ok' : s.status === 'down' ? 'bad' : s.status === 'degraded' ? 'warn' : 'unknown'} aria-hidden />
               <div className="grow">
                 <h2>{s.name}</h2>
-                <p className="dim small">{s.status === 'up' ? `no ar Â· ${s.lastLatencyMs} ms` : s.lastError ?? 'nÃ£o checado'}</p>
+                <p className="dim small">{s.status === 'up' ? `no ar · ${s.lastLatencyMs} ms` : s.lastError ?? 'não checado'}</p>
               </div>
               <button className="icon-btn" onClick={guard(() => api.checkService(s.id))} aria-label={`Checar ${s.name}`}><RefreshCw size={15} /></button>
             </li>
@@ -177,7 +177,7 @@ export function SystemView() {
               <span className="dot big" data-tone={p.state === 'running' ? 'ok' : p.state === 'stopped' ? 'bad' : p.state === 'degraded' ? 'warn' : 'unknown'} aria-hidden />
               <div className="grow">
                 <h2>{p.name}</h2>
-                <p className="dim small">{p.state} Â· {p.checks.map((c) => `${c.type}:${c.ok ? 'ok' : c.unknown ? '?' : 'falha'}`).join(' ') || p.detail}</p>
+                <p className="dim small">{p.state} · {p.checks.map((c) => `${c.type}:${c.ok ? 'ok' : c.unknown ? '?' : 'falha'}`).join(' ') || p.detail}</p>
               </div>
             </li>
           ))}
@@ -186,7 +186,7 @@ export function SystemView() {
       <section>
         <h1>Tarefas</h1>
         <div className="inline-form">
-          <input value={title} onChange={(e) => setTitle(e.target.value)} placeholder="Nova tarefa" aria-label="TÃ­tulo da nova tarefa" onKeyDown={(e) => e.key === 'Enter' && title.trim() && (guard(() => api.createTask(title, prio))(), setTitle(''))} />
+          <input value={title} onChange={(e) => setTitle(e.target.value)} placeholder="Nova tarefa" aria-label="Título da nova tarefa" onKeyDown={(e) => e.key === 'Enter' && title.trim() && (guard(() => api.createTask(title, prio))(), setTitle(''))} />
           <select value={prio} onChange={(e) => setPrio(e.target.value as Priority)} aria-label="Prioridade">{PRIORITIES.map((p) => <option key={p}>{p}</option>)}</select>
           <button className="btn" disabled={!title.trim()} onClick={() => (guard(() => api.createTask(title, prio))(), setTitle(''))}>Adicionar</button>
         </div>
@@ -228,14 +228,14 @@ export function VoiceView() {
   const act = (fn: () => Promise<unknown>) => () => void fn().then(() => setMsg('')).catch((e) => setMsg(e instanceof ApiError ? e.message : String(e))).finally(() => void refresh())
   return (
     <div className="page narrow-page">
-      <h1>Voz Â· ElevenLabs</h1>
-      <p className="dim lead">A chave fica sÃ³ neste PC (<code>data/voice.json</code>) e nunca volta para a tela. Sem chave, o JARVIS fala com a voz do sistema.</p>
+      <h1>Voz · ElevenLabs</h1>
+      <p className="dim lead">A chave fica só neste PC (<code>data/voice.json</code>) e nunca volta para a tela. Sem chave, o JARVIS fala com a voz do sistema.</p>
       <div className="panel form">
-        <p>{voice?.configured ? <>Configurada â€” origem <b>{voice.source}</b>, final <b>â€¦{voice.last4}</b></> : 'Nenhuma chave configurada.'}</p>
-        <label>Chave da API<input type="password" autoComplete="off" value={key} onChange={(e) => setKey(e.target.value)} placeholder="cole aqui; nÃ£o serÃ¡ exibida de volta" /></label>
+        <p>{voice?.configured ? <>Configurada — origem <b>{voice.source}</b>, final <b>…{voice.last4}</b></> : 'Nenhuma chave configurada.'}</p>
+        <label>Chave da API<input type="password" autoComplete="off" value={key} onChange={(e) => setKey(e.target.value)} placeholder="cole aqui; não será exibida de volta" /></label>
         <label>Voz
           <select value={voiceId} onChange={(e) => setVoiceId(e.target.value)}>
-            <option value="">padrÃ£o do JARVIS</option>
+            <option value="">padrão do JARVIS</option>
             {test?.voices.map((v) => <option key={v.id} value={v.id}>{v.name}</option>)}
           </select>
         </label>
@@ -244,7 +244,7 @@ export function VoiceView() {
           <button className="btn" onClick={act(() => api.voiceTest().then(setTest))}>Testar e listar vozes</button>
           <button className="btn" onClick={() => confirm('Remover a chave salva neste PC?') && act(() => api.voiceClear())()}>Remover</button>
         </div>
-        {test && <p className="ok-text small">Chave vÃ¡lida Â· {test.voices.length} vozes Â· {test.latencyMs} ms</p>}
+        {test && <p className="ok-text small">Chave válida · {test.voices.length} vozes · {test.latencyMs} ms</p>}
         {msg && <p className="err small" role="alert">{msg}</p>}
       </div>
     </div>

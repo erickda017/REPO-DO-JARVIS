@@ -70,6 +70,7 @@ async function call<T>(method: 'GET' | 'POST', path: string, body?: unknown): Pr
       method,
       headers: { ...(method === 'POST' ? { 'content-type': 'application/json' } : {}), ...(window.jarvis?.token ? { 'x-jarvis-token': window.jarvis.token } : {}) },
       body: method === 'POST' ? JSON.stringify(body ?? {}) : undefined,
+      signal: AbortSignal.timeout(path.startsWith('ai/') || path.startsWith('check') ? 150_000 : 30_000), // a hung bridge must not pile up requests
     })
   } catch {
     throw new ApiError('Bridge inacessível. Ele está rodando em ' + BASE + '?')

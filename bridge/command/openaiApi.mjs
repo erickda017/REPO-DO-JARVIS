@@ -88,7 +88,9 @@ export function createOpenAiApi({ router, registry, file, flags, audit }) {
           const system = msgs.filter((m) => m.role === 'system').map((m) => text(m.content)).join('\n\n') || undefined
           let turns = msgs.filter((m) => m.role !== 'system').map((m) => ({ role: m.role === 'assistant' ? 'assistant' : 'user', content: text(m.content) || '(vazio)' }))
           if (turns.at(-1)?.role !== 'user') turns = [...turns, { role: 'user', content: 'Continue.' }]
-          const req0 = { messages: turns.slice(-40), system, maxTokens: Math.min(Number(b.max_tokens ?? b.max_completion_tokens) || 1024, 8192), confirmSpend: flags.get('routerSpend') === true, providerId: registry.get(String(b.model)) ? String(b.model) : undefined }
+          turns = turns.slice(-40)
+          while (turns.length > 1 && turns[0].role !== 'user') turns.shift() // some APIs reject a conversation that starts with the assistant
+          const req0 = { messages: turns, messageLimit: 200_000, system: system?.slice(0, 200_000), maxTokens: Math.min(Number(b.max_tokens ?? b.max_completion_tokens) || 1024, 8192), confirmSpend: flags.get('routerSpend') === true, providerId: registry.get(String(b.model)) ? String(b.model) : undefined }
           let out
           try {
             out = await router.run({ ...req0, capability: 'coding' })
@@ -117,7 +119,7 @@ export function createOpenAiApi({ router, registry, file, flags, audit }) {
         err(res, 404, 'unsupported endpoint', 'not_found_error')
         return true
       } catch (e) {
-        const status = e.status ?? (e instanceof RouteError ? (/blocked/.test(e.message) ? 402 : 502) : 500)
+        const status = e.status ?? (e.kind === 'bad_request' ? 400 : e instanceof RouteError ? (/blocked/.test(e.message) ? 402 : 502) : 500)
         err(res, status, String(e?.message ?? e).slice(0, 300), e instanceof RouteError ? 'provider_error' : 'server_error')
         return true
       }

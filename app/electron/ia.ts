@@ -55,6 +55,7 @@ function launch(root: string, logDir: string, name: string, file: string, args: 
   mkdirSync(logDir, { recursive: true })
   const fd = openSync(join(logDir, `${name}.log`), 'a')
   const child = spawn(file, args, { cwd: root, detached: true, stdio: ['ignore', fd, fd], windowsHide: true })
+  child.on('error', () => { /* ENOENT etc.: the port check below reports that nothing came up */ })
   child.unref()
   closeSync(fd)
   return child.pid

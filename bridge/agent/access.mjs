@@ -28,7 +28,9 @@ const DEFAULT_TOOLS = { files: true, web: true, system: true, apps: false, proce
  *   - ROOT folders the file tools may read and change. No roots = the agent cannot touch any file.
  * Every path a tool receives is resolved (links followed) and must sit inside a root; otherwise the call is refused.
  */
-export function createAccess({ file, env = process.env, systemFolders = true } = {}) {
+export function createAccess({ file, env = process.env, systemFolders = true, deny = [] } = {}) {
+  // Never grantable/readable by file tools: JARVIS' own data (API keys, tokens), Windows itself and the Start Menu/Startup folders.
+  const denied = [...deny, systemFolders && env.SystemRoot, systemFolders && env.APPDATA && join(env.APPDATA, 'Microsoft', 'Windows', 'Start Menu')].filter(Boolean).map((d) => resolve(d))
   let data = { tools: { ...DEFAULT_TOOLS }, roots: [] }
   let loaded = !file
   let chain = Promise.resolve()
@@ -119,6 +121,7 @@ export function createAccess({ file, env = process.env, systemFolders = true } =
     },
     async addRoot(path, label) {
       const abs = real(await expand(path))
+      if (denied.some((d) => inside(d, abs))) throw new Error('esta pasta contém dados protegidos do JARVIS/Windows e não pode ser liberada')
       if (!exists(abs)) throw new Error('folder does not exist')
       const { root } = parse(abs)
       if (abs.replace(/[\\/]+$/, '').toLowerCase() === root.replace(/[\\/]+$/, '').toLowerCase()) throw new Error('a whole drive cannot be granted; pick a folder')
@@ -134,6 +137,7 @@ export function createAccess({ file, env = process.env, systemFolders = true } =
       const expanded = await expand(input)
       if (!isAbsolute(expanded)) throw new AgentError('path', `caminho relativo não aceito: ${String(input).slice(0, 80)} (use um caminho completo ou %DESKTOP%\\arquivo.txt)`)
       const abs = real(expanded)
+      if (denied.some((d) => inside(d, abs))) throw new AgentError('forbidden', `pasta protegida (dados do JARVIS/Windows): ${abs}`)
       if (!data.roots.some((r) => inside(r.path, abs))) {
         throw new AgentError('forbidden', `fora das pastas liberadas: ${abs}. Libere a pasta na tela Agente.`)
       }

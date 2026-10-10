@@ -70,7 +70,7 @@ function startUi(): Promise<void> {
     if (file !== DIST && !file.startsWith(DIST + sep)) return void res.writeHead(403).end() // path traversal guard (sibling folders with the same prefix included)
     if (!existsSync(file) || statSync(file).isDirectory()) file = join(DIST, 'index.html')
     res.writeHead(200, { 'content-type': MIME[extname(file)] ?? 'application/octet-stream' })
-    createReadStream(file).pipe(res)
+    createReadStream(file).on('error', () => res.destroy()).pipe(res)
   }
   // If the port is taken (another copy of the app, a dev server), move to the next free one in the allowed range.
   return new Promise((resolve, reject) => {
@@ -193,9 +193,11 @@ function registerIpc(getWin: () => BrowserWindow | null) {
         args = [p, `--pasta=${o.cwd}`, `--modo=${modo}`]
       } else { file = 'cmd.exe'; args = ['/c', p] }
     }
-    term = pty.spawn(file, args, { name: 'xterm-256color', cols: o.cols || 100, rows: o.rows || 30, cwd: o.cwd, env: process.env as Record<string, string> })
-    term.onData((d) => send('code:data', d))
-    term.onExit(({ exitCode }) => { send('code:exit', exitCode); stopWatch?.(); stopWatch = null; term = null })
+    const t = pty.spawn(file, args, { name: 'xterm-256color', cols: o.cols || 100, rows: o.rows || 30, cwd: o.cwd, env: process.env as Record<string, string> })
+    term = t
+    t.onData((d) => { if (term === t) send('code:data', d) })
+    // An older terminal exiting after a restart must not clear the NEW one (that left it orphaned and unreachable).
+    t.onExit(({ exitCode }) => { if (term !== t) return; send('code:exit', exitCode); stopWatch?.(); stopWatch = null; term = null })
     // Metrics exist for Claude Code only: it writes the transcripts we read.
     if (o.engine === 'claude') stopWatch = watchSession(o.cwd, (m, ev) => send('code:metrics', m, ev))
     return { ok: true }
@@ -231,7 +233,9 @@ async function createWindow() {
     return { action: 'deny' }
   })
   win.webContents.on('will-navigate', (e, url) => {
-    if (!url.startsWith(`http://127.0.0.1:${uiPort}`)) e.preventDefault()
+    let ok = false
+    try { ok = new URL(url).origin === `http://127.0.0.1:${uiPort}` } catch { /* malformed */ }
+    if (!ok) e.preventDefault()
   })
   await win.loadURL(DEV_URL ?? `http://127.0.0.1:${uiPort}`)
 

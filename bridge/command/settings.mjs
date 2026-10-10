@@ -25,14 +25,16 @@ export function createSettings({ file, getRegistry, baseEnv = process.env, audit
 
   const persist = () => {
     if (!file) return Promise.resolve()
-    chain = chain.then(async () => {
+    // A failed write (antivirus holding the file, EPERM on rename) must reject THIS call only, never poison later saves.
+    const run = chain.then(async () => {
       await mkdir(dirname(file), { recursive: true })
       const tmp = `${file}.tmp`
       await writeFile(tmp, JSON.stringify(data), { encoding: 'utf8', mode: 0o600 })
       await rename(tmp, file)
       await chmod(file, 0o600).catch(() => {})
     })
-    return chain
+    chain = run.catch(() => {})
+    return run
   }
 
   const apply = () => {

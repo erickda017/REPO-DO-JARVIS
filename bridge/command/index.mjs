@@ -36,7 +36,7 @@ export function createCommand({ config = loadConfig(), fetch: fetchImpl = fetch,
   const timer = createTimer({ file: persist ? join(config.dataDir, 'timer.json') : null, clock, audit })
   const voice = createVoice({ file: persist ? join(config.dataDir, 'voice.json') : null, env, envKey, fetch: fetchImpl, audit })
   // Desktop agent: permissions, real-metrics monitor, profiles, tools and the loop that drives them through the router.
-  const access = createAccess({ file: persist ? join(config.dataDir, 'agent-access.json') : null, env })
+  const access = createAccess({ file: persist ? join(config.dataDir, 'agent-access.json') : null, env, deny: persist ? [config.dataDir] : [] })
   const monitor = createMonitor({ clock })
   const profiles = createProfiles({ file: persist ? join(config.dataDir, 'profile-state.json') : null, monitor, clock })
   const tools = buildTools({ access, monitor, profiles, env })

@@ -104,10 +104,16 @@ export function buildTools({ access, monitor, profiles, env = process.env }) {
     if (existsSync(p) && !yes(overwrite)) throw new AgentError('exists', 'o arquivo já existe (use overwrite=true para sobrescrever)')
     await mkdir(dirname(p), { recursive: true })
     const data = Buffer.from(String(content), 'utf8')
-    await writeFile(p, data)
+    await writeFile(p, data, { flag: yes(overwrite) ? 'w' : 'wx' }) // wx: never overwrite a file that appeared after the check
     const back = await readFile(p)
     return { data: { path: p, bytes: data.length }, verified: sha1(back) === sha1(data) && existsSync(p), evidence: `existe=${existsSync(p)}, ${back.length} bytes, sha1 confere` }
-  }, async ({ path, overwrite }) => (yes(overwrite) && existsSync(await access.resolveInside(path)) ? `Sobrescrever o arquivo existente ${path}? O conteúdo atual será perdido (não vai para a Lixeira).` : null))
+  }, async ({ path, overwrite }) => {
+    const p = await access.resolveInside(path)
+    if (yes(overwrite) && existsSync(p)) return `Sobrescrever o arquivo existente ${path}? O conteúdo atual será perdido (não vai para a Lixeira).`
+    // A new script/shortcut can run later (Startup folders, double-click): always ask.
+    if (/.(bat|cmd|ps1|psm1|vbs|vbe|js|jse|wsf|lnk|exe|scr|msi|reg|hta)$/i.test(p)) return `Criar o arquivo executável ${p}? Ele pode rodar código se for aberto.`
+    return null
+  })
 
   def('fs_mkdir', 'files', 'write', 'Cria uma pasta.', { path: 'caminho da pasta' }, async ({ path }) => {
     const p = await access.resolveInside(path)
@@ -131,7 +137,8 @@ export function buildTools({ access, monitor, profiles, env = process.env }) {
     return { data: { from: a, to: b }, verified: existsSync(b) && !existsSync(a), evidence: `destino existe=${existsSync(b)}, origem some=${!existsSync(a)}` }
   })
 
-  def('fs_delete', 'files', 'danger', 'Apaga um arquivo ou pasta liberada. Por padrão vai para a Lixeira (reversível); permanent=true apaga de vez.', { path: 'caminho', permanent: 'true para apagar definitivamente' }, async ({ path, permanent = false }) => {
+  def('fs_delete', 'files', 'danger', 'Apaga um arquivo ou pasta liberada. Por padrão vai para a Lixeira (reversível); permanent=true apaga de vez.', { path: 'caminho', permanent: 'true para apagar definitivamente' }, async ({ path, permanent: perm = false }) => {
+    const permanent = yes(perm)
     const p = await access.resolveInside(path)
     if (!existsSync(p)) throw new AgentError('missing', 'não existe')
     const isDir = (await stat(p)).isDirectory()
@@ -139,12 +146,14 @@ export function buildTools({ access, monitor, profiles, env = process.env }) {
     else if (isWindows) await ps(`Add-Type -AssemblyName Microsoft.VisualBasic; $p=${q(p)}; if (Test-Path -LiteralPath $p -PathType Container) { [Microsoft.VisualBasic.FileIO.FileSystem]::DeleteDirectory($p,'OnlyErrorDialogs','SendToRecycleBin') } else { [Microsoft.VisualBasic.FileIO.FileSystem]::DeleteFile($p,'OnlyErrorDialogs','SendToRecycleBin') }`, { timeoutMs: 30000 })
     else await rm(p, { recursive: true })
     return { data: { path: p, to: permanent ? 'apagado definitivamente' : 'Lixeira' }, verified: !existsSync(p), evidence: `não existe mais=${!existsSync(p)}`, wasDir: isDir }
-  }, async ({ path, permanent }) => {
+  }, async ({ path, permanent: perm }) => {
+    const permanent = yes(perm)
     const p = await access.resolveInside(path)
     let what = p
     try {
       const st = await stat(p)
-      what = st.isDirectory() ? `a pasta ${p} (${(await folderSizeOf(p)).files} arquivos, ${mb((await folderSizeOf(p)).bytes)} MB)` : `o arquivo ${p} (${mb(st.size)} MB)`
+      const fz = st.isDirectory() ? await folderSizeOf(p) : null
+      what = fz ? `a pasta ${p} (${fz.partial ? 'pelo menos ' : ''}${fz.files} arquivos, ${fz.partial ? 'pelo menos ' : ''}${mb(fz.bytes)} MB)` : `o arquivo ${p} (${mb(st.size)} MB)`
     } catch { /* missing: run() will say so */ }
     return `Apagar ${what}? ${permanent ? 'DEFINITIVAMENTE, sem passar pela Lixeira.' : 'Vai para a Lixeira (dá para restaurar).'}`
   })
@@ -245,9 +254,10 @@ export function buildTools({ access, monitor, profiles, env = process.env }) {
   def('proc_close', 'processes', 'danger', 'Fecha um aplicativo pelo pid (primeiro o pedido normal de fechar; force=true só se ele não fechar e com nova confirmação). Processos protegidos são recusados.', { pid: 'número do processo', force: 'true para forçar' }, async ({ pid, force = false }) => {
     const info = await processInfo(pid)
     if (info.class === 'protected') throw new AgentError('protected', `${info.Name} é protegido (${info.why}); recusado`)
-    const r = await closeProcess(pid, { force: Boolean(force) })
+    const r = await closeProcess(pid, { force: yes(force) })
     return { data: { name: info.Name, ...r }, verified: r.exited, evidence: r.exited ? `${info.Name} (pid ${pid}) não existe mais` : `${info.Name} continua aberto` }
-  }, async ({ pid, force }) => {
+  }, async ({ pid, force: f0 }) => {
+    const force = yes(f0)
     const info = await processInfo(pid)
     if (info.class === 'protected') return null // run() refuses it with a clear error; no point asking
     return `${force ? 'FORÇAR o encerramento de' : 'Fechar'} ${info.Name} (pid ${pid}, ${info.MemMB} MB${info.Title ? `, janela "${info.Title}"` : ''}; ${info.why})? ${info.class === 'optional' && !force ? '' : 'Pode haver trabalho não salvo.'}`

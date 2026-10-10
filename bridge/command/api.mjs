@@ -126,12 +126,16 @@ export function createApi({ openai, health, router, services, projects, tasks, t
     },
     // Run one tool directly (used by the app's own screens). Anything dangerous needs confirmed:true, i.e. the owner already clicked OK.
     'POST agent/tool': async (b) => {
-      const t = agent.tools[String(b.tool ?? '')]
+      const name = String(b.tool ?? '')
+      const t = Object.hasOwn(agent.tools, name) ? agent.tools[name] : undefined
       if (!t) throw new HttpError(404, 'unknown tool')
       if (!access.allows(t.group)) throw new HttpError(403, 'o grupo "' + t.group + '" está desligado na tela Agente')
-      if (t.risk === 'danger' && b.confirmed !== true) throw new HttpError(409, 'esta ação precisa de confirmação')
+      const args = b.args && typeof b.args === 'object' ? b.args : {}
+      // Same rule as the agent loop: dangerous tools, and any tool whose own check asks for a confirmation for these args.
+      const needs = t.risk === 'danger' || (t.confirm ? (await t.confirm(args)) !== null : false)
+      if (needs && b.confirmed !== true) throw new HttpError(409, 'esta ação precisa de confirmação')
       try {
-        const r = await t.run(b.args && typeof b.args === 'object' ? b.args : {})
+        const r = await t.run(args)
         audit.record('agent.tool', { tool: t.name, ok: true, verified: r.verified })
         return { ok: true, ...r }
       } catch (e) {

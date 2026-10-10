@@ -118,8 +118,8 @@ export function AgentView() {
               <ul className="stack">
                 {mon.disks.map((d) => (
                   <li key={d.drive} className="panel disk" data-low={(d.freePct ?? 100) < 10}>
-                    <div className="row-panel" style={{ padding: 0 }}><HardDrive size={16} /><b>{d.drive}</b><span className="dim small grow">{d.freeGB} GB livres de {d.totalGB} GB</span><span className="small">{d.freePct}%</span></div>
-                    <div className="bar"><i style={{ width: `${100 - (d.freePct ?? 0)}%` }} /></div>
+                    <div className="row-panel" style={{ padding: 0 }}><HardDrive size={16} /><b>{d.drive}</b><span className="dim small grow">{d.freeGB} GB livres de {d.totalGB} GB</span><span className="small">{d.freePct == null ? "n/d" : `${d.freePct}%`}</span></div>
+                    <div className="bar"><i style={{ width: d.freePct == null ? "0%" : `${100 - d.freePct}%` }} /></div>
                   </li>
                 ))}
               </ul>

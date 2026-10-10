@@ -7,7 +7,7 @@ import { isWindows, ps, psJson } from './winps.mjs'
  *   optional   a well-known background/chat/launcher app that is safe to close gracefully
  *   unknown    purpose unclear: needs confirmation
  */
-const PROTECTED = new Set(['system', 'idle', 'registry', 'smss', 'csrss', 'wininit', 'winlogon', 'services', 'lsass', 'lsaiso', 'svchost', 'dwm', 'fontdrvhost', 'memory compression', 'securityhealthservice', 'securityhealthsystray', 'msmpeng', 'nissrv', 'mpdefendercoreservice', 'sgrmbroker', 'wudfhost', 'audiodg', 'spoolsv', 'taskhostw', 'sihost', 'ctfmon', 'runtimebroker', 'searchhost', 'startmenuexperiencehost', 'shellexperiencehost', 'textinputhost', 'dllhost', 'conhost', 'wmiprvse', 'trustedinstaller', 'tiworker', 'msiexec', 'powershell', 'pwsh', 'cmd', 'node', 'j.a.r.v.i.s', 'jarvis', 'llama-server', 'electron'])
+const PROTECTED = new Set(['system', 'idle', 'registry', 'smss', 'csrss', 'wininit', 'winlogon', 'services', 'lsass', 'lsaiso', 'svchost', 'dwm', 'fontdrvhost', 'memory compression', 'securityhealthservice', 'securityhealthsystray', 'msmpeng', 'nissrv', 'mpdefendercoreservice', 'sgrmbroker', 'wudfhost', 'audiodg', 'spoolsv', 'taskhostw', 'sihost', 'ctfmon', 'runtimebroker', 'searchhost', 'startmenuexperiencehost', 'shellexperiencehost', 'textinputhost', 'dllhost', 'conhost', 'wmiprvse', 'trustedinstaller', 'tiworker', 'msiexec', 'powershell', 'pwsh', 'cmd', 'node', 'j.a.r.v.i.s', 'jarvis', 'llama-server', 'electron', 'taskmgr', 'logonui', 'userinit', 'lsm', 'sppsvc', 'ollama', 'llama-cli'])
 const SECURITY = /(avast|avg|kaspersky|kav|mcafee|mfe|norton|bitdefender|bdagent|eset|ekrn|sophos|malwarebytes|mbam|crowdstrike|windefend|antimalware)/i
 const CAUTION = new Set(['explorer', 'chrome', 'msedge', 'firefox', 'brave', 'opera', 'winword', 'excel', 'powerpnt', 'code', 'devenv', 'notepad', 'notepad++', 'obs64', 'obs', 'vlc', 'photoshop', 'premiere pro', 'blender', 'javaw', 'java', 'minecraft', 'steam', 'epicgameslauncher', 'battle.net', 'eadesktop', 'origin', 'upc'])
 const OPTIONAL = new Set(['discord', 'spotify', 'teams', 'ms-teams', 'slack', 'skype', 'telegram', 'whatsapp', 'onedrive', 'dropbox', 'googledrivefs', 'steamwebhelper', 'epicwebhelper', 'galaxyclient', 'adobeupdateservice', 'ccxprocess', 'creative cloud', 'cefsharp.browsersubprocess', 'msedgewebview2', 'widgets', 'phoneexperiencehost', 'yourphone', 'gamebar', 'gamebarftserver', 'lghub', 'lghub_agent', 'razer synapse', 'icue', 'nvidia share', 'nvcontainer'])
@@ -30,6 +30,7 @@ export async function listProcesses({ filter, top = 60 } = {}) {
 export async function processInfo(pid) {
   const id = Number(pid)
   if (!Number.isInteger(id) || id <= 4) throw new Error('pid inválido')
+  if (id === process.pid || id === process.ppid) throw new Error('este processo é o próprio JARVIS; recusado')
   const r = await psJson(`$p=Get-Process -Id ${id}; [pscustomobject]@{Name=$p.ProcessName;Id=$p.Id;MemMB=[math]::Round($p.WorkingSet64/1MB);Title=$p.MainWindowTitle;Path=$p.Path} | ConvertTo-Json -Compress`, { timeoutMs: 10000 })
   return { ...r, ...classify(r.Name) }
 }

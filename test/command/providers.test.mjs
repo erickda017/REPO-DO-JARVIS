@@ -120,10 +120,10 @@ test('router: falls back after a retryable failure, skips unverified, reports at
   assert.ok(out.attempts.some((a) => a.provider === 'jev' && /not verified/.test(a.skipped)))
 })
 
-test('router: auth error does not fall back and is surfaced', async () => {
+test('router: auth error moves on to the next provider and is still surfaced when all fail', async () => {
   const { router, f } = stack(() => ({ status: 401, body: {} }))
   await assert.rejects(router.run({ prompt: 'hi', confirmSpend: true }), (e) => e instanceof RouteError && e.attempts.some((a) => a.error?.kind === 'auth'))
-  assert.equal(f.calls.length, 1)
+  assert.ok(f.calls.length >= 1)
 })
 
 test('router: all providers down -> RouteError, never a fake answer', async () => {
@@ -139,4 +139,13 @@ test('openai-compat: keyless llama-server style reply is accepted, auth reported
   assert.equal(f.calls[0].headers.authorization, undefined)
   const out = await openaiCompatProvider({ id: 'local', baseUrl: 'http://127.0.0.1:8080/v1' }, { fetch: fakeFetch(() => ({ body: { model: 'qwen-local', choices: [{ message: { content: 'oi' } }] } })), env: {} }).infer({ model: 'qwen-local', prompt: 'x' })
   assert.equal(out.text, 'oi')
+})
+
+test('router: a rejected key (401) or an empty-credit 400 on the first provider still lets the next one answer', async () => {
+  for (const first of [{ status: 401, body: {} }, { status: 400, body: { error: { message: 'Your credit balance is too low' } } }]) {
+    const { router } = stack((url) => (url.includes('anthropic') ? first : { body: { choices: [{ message: { content: 'from local' } }], model: 'q' } }))
+    const out = await router.run({ prompt: 'hi', confirmSpend: true })
+    assert.equal(out.provider, 'local')
+    assert.ok(out.attempts.some((a) => a.provider === 'cloud' && a.error))
+  }
 })

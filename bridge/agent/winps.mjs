@@ -38,6 +38,7 @@ export async function psJson(script, opts) {
 }
 
 /** Single-quote a string for safe use inside a PowerShell snippet. */
-export const q = (s) => `'${String(s).replace(/'/g, "''")}'`
+// PowerShell treats the typographic quotes U+2018..201B as single quotes too: double them all, or a name like x’; calc; ’y breaks out.
+export const q = (s) => `'${String(s).replace(/['‘’‚‛]/g, (m) => m + m)}'`
 
 export const isWindows = process.platform === 'win32'

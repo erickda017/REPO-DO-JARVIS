@@ -7,10 +7,16 @@ import '@fontsource/barlow-semi-condensed/400.css'
 import '@fontsource/barlow-semi-condensed/500.css'
 import '@fontsource/barlow-semi-condensed/600.css'
 import './styles.css'
+import { MotionConfig } from 'framer-motion'
 import { App } from './App.tsx'
+import { ErrorBoundary } from './ui/ErrorBoundary.tsx'
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
-    <App />
+    <MotionConfig reducedMotion="user">
+      <ErrorBoundary>
+        <App />
+      </ErrorBoundary>
+    </MotionConfig>
   </StrictMode>,
 )

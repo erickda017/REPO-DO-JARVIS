@@ -41,6 +41,9 @@ const PORT = Number(process.env.JARVIS_BRIDGE_PORT ?? 8787)
 process.on('unhandledRejection', (err) => {
   console.error('[jarvis] unhandled rejection:', err)
 })
+process.on('uncaughtException', (err) => {
+  console.error('[jarvis] uncaught exception (kept running):', err)
+})
 
 /**
  * Who is allowed to talk to this bridge.
@@ -1024,7 +1027,10 @@ const wss = new WebSocketServer({
   // here rather than after the socket is open. Rejections are logged loudly:
   // the likeliest cause is a dev server on an unexpected port, and a silent
   // 403 would look like the bridge simply isn't running.
+  maxPayload: 4 * 1024 * 1024,
   verifyClient: ({ origin, req }, done) => {
+    // The app's agent talks only HTTP (with the per-launch token); the legacy voice socket has no token, so it is closed in app mode.
+    if (APP_TOKEN) return done(false, 403, 'Forbidden')
     const path = (req.url ?? '/').split('?')[0]
     if (path !== '/' && path !== '/ws') {
       console.warn(`[jarvis] rejected websocket on path ${path}`)
@@ -1083,7 +1089,9 @@ const RESULT_FAILURES = {
   default: 'The turn ended without an answer.',
 }
 
+wss.on('error', (e) => console.error('[jarvis] websocket server error:', e?.message))
 wss.on('connection', (socket) => {
+  socket.on('error', (e) => console.warn('[jarvis] websocket error:', e?.message))
   console.log('[jarvis] client connected')
 
   // Answer the HUD straight away rather than making it wait for the agent's
@@ -1447,6 +1455,7 @@ wss.on('connection', (socket) => {
     } catch {
       return
     }
+    if (!msg || typeof msg !== 'object') return // a bare `null`/number frame must not crash the bridge
 
     if (msg.type === 'ask' && typeof msg.text === 'string') {
       /**
