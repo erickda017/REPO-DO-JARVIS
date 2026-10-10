@@ -574,3 +574,6 @@ input, select { border-radius: var(--r-sm); }
 .conn { padding: 14px 16px; align-items: stretch; }
 .conn .row-panel { padding: 0; }
 .conn-detail { padding-left: 2px; }
+
+.conn-steps { margin: 4px 0 4px 18px; padding: 0; display: flex; flex-direction: column; gap: 6px; font-size: 13px; color: var(--dim); }
+.google { margin-top: 18px; }

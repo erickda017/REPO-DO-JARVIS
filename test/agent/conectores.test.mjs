@@ -80,7 +80,7 @@ function sampleValue(c, f) {
   if (f.kind === 'slug' || f.name === 'topic') return 'abc123'
   return f.default ?? 'valor'
 }
-const sampleArgs = (t) => Object.fromEntries((t.req ?? []).map((k) => [k, t.json?.includes(k) ? '{"a":1}' : k === 'method' ? 'POST' : k === 'path' ? '/x/y' : k === 'filter' ? 'id=eq.1' : k === 'to' ? 'a@b.test' : 'abc']))
+const sampleArgs = (t) => Object.fromEntries((t.req ?? []).map((k) => [k, t.json?.includes(k) ? '{"a":1}' : k === 'method' ? 'POST' : k === 'path' ? '/x/y' : k === 'filter' ? 'id=eq.1' : k === 'to' ? 'a@b.test' : k === 'kind' ? 'folder' : k === 'start' || k === 'end' ? '2026-10-11T10:00:00-03:00' : k === 'due' ? '2026-10-12' : 'abc']))
 
 test('catalogue: every tool of every connector builds a valid request to an allowed host, with its credential in the right place and nothing undefined', async () => {
   const { connectors } = stack()

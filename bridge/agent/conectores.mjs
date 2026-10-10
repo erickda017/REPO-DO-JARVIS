@@ -46,7 +46,7 @@ const asJson = (v) => {
   try { return JSON.parse(v) } catch { return v }
 }
 
-export function createConnectors({ file = null, settings, fetch: fetchImpl = fetch, audit = null, clock = Date.now, catalog = CONNECTORS } = {}) {
+export function createConnectors({ file = null, settings, fetch: fetchImpl = fetch, audit = null, clock = Date.now, catalog = CONNECTORS, google = null } = {}) {
   const byId = new Map(catalog.map((c) => [c.id, c]))
   let state = { enabled: {}, write: {}, values: {} } // values: plain (non-secret) field values per connector
   let loaded = !file
@@ -72,13 +72,23 @@ export function createConnectors({ file = null, settings, fetch: fetchImpl = fet
     return c
   }
 
+  const isGoogle = (c) => c.auth.type === 'google' // signs in through google.mjs (OAuth); the catalogue declares scopes: { read: [...], write: [...] }
+  const scopesOf = (c, level) => c.scopes?.[level] ?? []
+  const googleScopes = (c, tool) => (tool.risk === 'read' ? scopesOf(c, 'read') : scopesOf(c, 'write'))
+
+  /** Runs after the owner approved in the browser. Google lets people untick single permissions: if one is missing, say so instead of asking again in a loop. */
+  const afterConsent = async (c, level, apply) => {
+    if (!google.has(scopesOf(c, level))) throw new Error(`o Google não concedeu a permissão pedida para ${c.label} (alguma caixa ficou desmarcada na tela de autorização). Tente de novo e deixe todas marcadas.`)
+    return apply()
+  }
+
   // ---------------------------------------------------------------- credentials and fields
   const secretsOf = (c) => c.fields.filter((f) => f.secret)
   const secretValue = (c, f) => settings.env()[secretName(c.id, f.name)] || ''
   const fieldValues = (c) => Object.fromEntries(c.fields.map((f) => [f.name, f.secret ? secretValue(c, f) : (state.values[c.id]?.[f.name] ?? f.default ?? '')]))
-  const missing = (c) => c.fields.filter((f) => f.required && !fieldValues(c)[f.name]).map((f) => f.label)
+  const missing = (c) => (isGoogle(c) ? (google?.status().connected ? [] : [google?.status().configured ? 'entrar com a conta Google' : 'cadastrar a conta Google (Client ID e Client Secret)']) : c.fields.filter((f) => f.required && !fieldValues(c)[f.name]).map((f) => f.label))
   const ready = (c) => missing(c).length === 0
-  const allSecrets = (c) => secretsOf(c).map((f) => secretValue(c, f)).filter((v) => v.length >= 8)
+  const allSecrets = (c) => [...secretsOf(c).map((f) => secretValue(c, f)), ...(isGoogle(c) ? [google?.peekAccess() ?? ''] : [])].filter((v) => v.length >= 8)
   const redactFor = (c, text) => {
     let s = String(text)
     for (const v of allSecrets(c)) s = s.split(v).join('***').split(encodeURIComponent(v)).join('***')
@@ -88,6 +98,7 @@ export function createConnectors({ file = null, settings, fetch: fetchImpl = fet
   // ---------------------------------------------------------------- request building (pure: tested without a network)
   function resolveArgs(tool, raw = {}) {
     const a = { ...(tool.defaults ?? {}) }
+    for (const k of Object.keys(a)) if (typeof a[k] === 'function') a[k] = a[k]() // dynamic defaults (e.g. "now")
     for (const [k, v] of Object.entries(raw ?? {})) if (v !== undefined && v !== null && v !== '') a[k] = v
     for (const k of tool.req ?? []) if (a[k] === undefined) throw new AgentError('args', `falta o parâmetro "${k}"`)
     for (const [k, m] of Object.entries(tool.max ?? {})) if (a[k] !== undefined) a[k] = Math.min(Math.max(Number(a[k]) || 1, 1), m)
@@ -95,7 +106,7 @@ export function createConnectors({ file = null, settings, fetch: fetchImpl = fet
     return a
   }
 
-  function buildRequest(c, tool, rawArgs) {
+  function buildRequest(c, tool, rawArgs, opts = {}) {
     const fv = fieldValues(c)
     const a = resolveArgs(tool, rawArgs)
     const vals = { ...fv, ...a }
@@ -133,7 +144,8 @@ export function createConnectors({ file = null, settings, fetch: fetchImpl = fet
     const headers = { 'User-Agent': UA, Accept: 'application/json', ...(c.headers ?? {}), ...(tool.headers ?? {}) }
     const auth = c.auth
     const token = auth.field ? fv[auth.field] : ''
-    if (auth.type === 'bearer' && token) headers.Authorization = `Bearer ${token}`
+    if (auth.type === 'google') headers.Authorization = `Bearer ${opts.token ?? 'TOKEN'}` // the real token is fetched (and refreshed) in execute()
+    else if (auth.type === 'bearer' && token) headers.Authorization = `Bearer ${token}`
     else if (auth.type === 'header' && token) headers[auth.nameField ? fv[auth.nameField] || 'Authorization' : auth.name] = `${auth.prefixField ? fv[auth.prefixField] ?? '' : auth.prefix ?? ''}${token}`
     else if (auth.type === 'basic') headers.Authorization = `Basic ${Buffer.from(`${fv[auth.user]}:${fv[auth.pass]}`).toString('base64')}`
     for (const [k, field] of Object.entries(auth.also ?? {})) headers[k] = fv[field]
@@ -198,11 +210,13 @@ export function createConnectors({ file = null, settings, fetch: fetchImpl = fet
 
   async function execute(c, tool, rawArgs) {
     if (!rateOk(c.id)) throw new AgentError('rate', `${c.label}: muitas chamadas em um minuto; espere um pouco`)
+    // Google: a fresh access token carrying exactly the scopes this tool needs (read or write); refusal text is user-facing.
+    const token = isGoogle(c) ? await (google?.accessToken(googleScopes(c, tool)) ?? Promise.reject(new AgentError('google', 'login do Google indisponível'))) : undefined
     if (tool.custom) {
       const a = resolveArgs(tool, rawArgs)
       const base = c.base.replace(/\/+$/, '')
       const get = async (p) => {
-        const req = { url: base + p, init: { method: 'GET', headers: { 'User-Agent': UA, Accept: 'application/json' }, redirect: 'manual' } }
+        const req = { url: base + p, init: { method: 'GET', headers: { 'User-Agent': UA, Accept: 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) }, redirect: 'manual' } }
         if (!hostOk(new URL(req.url).hostname, c.hosts ?? [])) throw new AgentError('config', 'endereço fora dos servidores deste serviço')
         const r = await http(c, req)
         if (r.status >= 400) throw new AgentError('http', errorText(c, r))
@@ -212,7 +226,7 @@ export function createConnectors({ file = null, settings, fetch: fetchImpl = fet
       audit?.record('connector.call', { id: c.id, tool: tool.name, ok: true })
       return { data }
     }
-    const req = buildRequest(c, tool, rawArgs)
+    const req = buildRequest(c, tool, rawArgs, { token })
     const r = await http(c, req)
     const ok = r.status < 400
     audit?.record('connector.call', { id: c.id, tool: tool.name, ok, status: r.status }) // never the arguments
@@ -234,7 +248,7 @@ export function createConnectors({ file = null, settings, fetch: fetchImpl = fet
 
   // ---------------------------------------------------------------- tools in the agent's table
   function toolDefs(c) {
-    const write = state.write[c.id] === true
+    const write = state.write[c.id] === true && (!isGoogle(c) || google?.has(scopesOf(c, 'write')) === true) // write tools exist only while Google really granted the write scopes
     const out = {}
     for (const t of c.tools) {
       if (t.risk !== 'read' && !write) continue
@@ -255,7 +269,7 @@ export function createConnectors({ file = null, settings, fetch: fetchImpl = fet
     for (const names of registered.values()) for (const n of names) delete toolsTable[n]
     registered.clear()
     for (const c of catalog) {
-      if (!state.enabled[c.id] || !ready(c)) continue
+      if (!state.enabled[c.id] || !ready(c) || (isGoogle(c) && !google?.has(scopesOf(c, 'read')))) continue
       const defs = toolDefs(c)
       Object.assign(toolsTable, defs)
       registered.set(c.id, Object.keys(defs))
@@ -266,6 +280,7 @@ export function createConnectors({ file = null, settings, fetch: fetchImpl = fet
     id: c.id, label: c.label, category: c.category, desc: c.desc, help: c.help, selfHosted: Boolean(c.allowPrivate), hasTest: Boolean(c.test),
     fields: c.fields.map((f) => ({ name: f.name, label: f.label, secret: Boolean(f.secret), required: Boolean(f.required), kind: f.kind ?? 'text', placeholder: f.placeholder ?? '', configured: Boolean(f.secret ? secretValue(c, f) : (state.values[c.id]?.[f.name] ?? f.default)), ...(f.secret ? {} : { value: state.values[c.id]?.[f.name] ?? f.default ?? '' }) })),
     ready: ready(c), missing: missing(c), enabled: state.enabled[c.id] === true && ready(c), write: state.write[c.id] === true,
+    ...(isGoogle(c) ? { google: { account: google?.status().email ?? '', needsRead: !google?.has(scopesOf(c, 'read')), needsWrite: c.tools.some((t) => t.risk !== 'read') && !google?.has(scopesOf(c, 'write')) } } : {}),
     tools: c.tools.map((t) => ({ name: `${c.id.replace(/-/g, '_')}_${t.name}`, desc: t.desc, risk: t.risk })),
   })
 
@@ -280,7 +295,7 @@ export function createConnectors({ file = null, settings, fetch: fetchImpl = fet
       sync()
     },
     /** The agent's tool table: connector tools are added to / removed from it as the owner switches connectors. */
-    attach(table) { toolsTable = table; sync() },
+    attach(table) { toolsTable = table; sync(); google?.onChange(sync) }, // signing in/out of Google adds/removes its tools at once
     /** Secret names this module may store through the settings vault (so settings.setKey accepts them). */
     secretNames: () => catalog.flatMap((c) => secretsOf(c).map((f) => secretName(c.id, f.name))),
     list: () => catalog.map(view),
@@ -330,6 +345,11 @@ export function createConnectors({ file = null, settings, fetch: fetchImpl = fet
     async setEnabled(id, on) {
       const c = need(id)
       if (on && !ready(c)) throw new Error(`faltam dados para ligar: ${missing(c).join(', ')}`)
+      // Google asks for each service's READ scopes only now, when the owner switches it on; the switch is applied once he approves.
+      if (on && isGoogle(c) && !google.has(scopesOf(c, 'read'))) {
+        const { authUrl } = await google.begin(scopesOf(c, 'read'), () => afterConsent(c, 'read', () => this.setEnabled(id, true)))
+        return { ...view(c), consent: { authUrl } }
+      }
       state.enabled[c.id] = Boolean(on)
       if (!on) state.write[c.id] = false
       await persist()
@@ -341,6 +361,11 @@ export function createConnectors({ file = null, settings, fetch: fetchImpl = fet
     async setWrite(id, on) {
       const c = need(id)
       if (on && !state.enabled[c.id]) throw new Error('ligue o conector antes de permitir alterações')
+      // Write scopes are a second, separate consent.
+      if (on && isGoogle(c) && !google.has(scopesOf(c, 'write'))) {
+        const { authUrl } = await google.begin(scopesOf(c, 'write'), () => afterConsent(c, 'write', () => this.setWrite(id, true)))
+        return { ...view(c), consent: { authUrl } }
+      }
       state.write[c.id] = Boolean(on)
       await persist()
       audit?.record('connector.write', { id, on: Boolean(on) })
@@ -352,6 +377,7 @@ export function createConnectors({ file = null, settings, fetch: fetchImpl = fet
     async test(id) {
       const c = need(id)
       if (!ready(c)) return { ok: false, message: `faltam dados: ${missing(c).join(', ')}` }
+      if (isGoogle(c) && !google.has(scopesOf(c, 'read'))) return { ok: false, message: 'ligue o conector para autorizar o acesso no Google' }
       const t = c.tools.find((x) => x.name === c.test)
       if (!t) return { ok: true, message: 'configurado (este conector não tem uma chamada de teste sem efeito: use-o pela primeira vez com cuidado)' }
       try {

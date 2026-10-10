@@ -22,7 +22,106 @@ const notionText = (rt) => (rt ?? []).map((x) => x.plain_text).join('')
 const notionTitle = (o) => notionText(o?.properties ? Object.values(o.properties).find((p) => p.type === 'title')?.title : o?.title)
 const notionProps = (props) => Object.fromEntries(Object.entries(props ?? {}).map(([k, p]) => [k, p.type === 'title' ? notionText(p.title) : p.type === 'rich_text' ? notionText(p.rich_text) : p.type === 'select' ? p.select?.name : p.type === 'status' ? p.status?.name : p.type === 'number' ? p.number : p.type === 'checkbox' ? p.checkbox : p.type === 'date' ? p.date?.start : p.type === 'url' ? p.url : `(${p.type})`]))
 const blocksOf = (text) => String(text).split(/\n+/).filter(Boolean).slice(0, 50).map((line) => ({ object: 'block', type: 'paragraph', paragraph: { rich_text: [{ type: 'text', text: { content: line.slice(0, 1900) } }] } }))
-const token = (label, help) => ({ name: 'token', label, secret: true, required: true, placeholder: help })
+// ---- Google helpers
+const gs = (s) => `https://www.googleapis.com/auth/${s}`
+const addr = (v, name) => {
+  const list = String(v).split(',').map((x) => x.trim()).filter(Boolean)
+  if (!list.length || list.length > 10 || list.some((x) => !/^[^\s<>,;"()]+@[^\s<>,;"()]+\.[^\s<>,;"()]+$/.test(x))) throw new Error(`${name}: use endereços de e-mail simples, separados por vírgula (até 10)`)
+  return list.join(', ')
+}
+const noCrlf = (v, name) => { if (/[\r\n]/.test(String(v))) throw new Error(`${name} inválido`); return String(v) }
+const mime = (a) => {
+  const lines = [`To: ${addr(a.to, 'destinatário')}`, ...(a.cc ? [`Cc: ${addr(a.cc, 'cc')}`] : []), `Subject: =?UTF-8?B?${Buffer.from(noCrlf(a.subject, 'assunto')).toString('base64')}?=`, 'MIME-Version: 1.0', 'Content-Type: text/plain; charset="UTF-8"', 'Content-Transfer-Encoding: base64', '', Buffer.from(String(a.text)).toString('base64').replace(/(.{76})/g, '$1\r\n')]
+  return Buffer.from(lines.join('\r\n')).toString('base64url')
+}
+const hdr = (m, n) => m.payload?.headers?.find((h) => h.name.toLowerCase() === n)?.value
+const bodyText = (p) => {
+  const walk = (x, mimeType) => (!x ? '' : x.mimeType === mimeType && x.body?.data ? Buffer.from(x.body.data, 'base64url').toString('utf8') : (x.parts ?? []).map((y) => walk(y, mimeType)).join('\n'))
+  return walk(p, 'text/plain').trim() || plain(walk(p, 'text/html').replace(/<(script|style)[\s\S]*?<\/\1>/gi, '')).replace(/\s+\n/g, '\n').trim()
+}
+const attachments = (p) => (!p ? [] : [...(p.filename && p.body?.attachmentId ? [{ name: p.filename, size: p.body.size }] : []), ...(p.parts ?? []).flatMap(attachments)])
+const iso = (v, name) => { if (!/^\d{4}-\d{2}-\d{2}(T\d{2}:\d{2}(:\d{2})?(\.\d+)?(Z|[+-]\d{2}:\d{2})?)?$/.test(String(v))) throw new Error(`${name}: use AAAA-MM-DD ou AAAA-MM-DDTHH:MM:SS-03:00`); return String(v) }
+const when = (v, tz, name) => (/^\d{4}-\d{2}-\d{2}$/.test(iso(v, name)) ? { date: v } : { dateTime: v, ...(tz ? { timeZone: tz } : {}) })
+const rows = (v) => (Array.isArray(v) && v.length && v.every(Array.isArray) ? v : Array.isArray(v) ? [v] : [[v]])
+const docText = (d) => (d.body?.content ?? []).flatMap((e) => e.paragraph?.elements ?? []).map((x) => x.textRun?.content ?? '').join('')
+const GOOGLE_NOTE = 'Antes: na tela Conectores, cadastre a sua conta Google (Client ID e Client Secret) e entre. Ao ligar este conector o Google pede só as permissões dele, de leitura; alterar pede uma segunda autorização.'
+const googleBase = { category: 'Google', fields: [], auth: { type: 'google' }, help: GOOGLE_NOTE }
+
+function googleConnectors() {
+  return [
+    {
+      ...googleBase, id: 'gmail', label: 'Gmail', desc: 'Ler e buscar e-mails; criar rascunhos e enviar (o envio é sempre confirmado).',
+      base: 'https://gmail.googleapis.com/gmail/v1/users/me', hosts: ['gmail.googleapis.com'], scopes: { read: [gs('gmail.readonly')], write: [gs('gmail.compose')] }, test: 'profile',
+      tools: [
+        { name: 'profile', desc: 'Minha caixa de e-mail (endereço e totais).', risk: 'read', method: 'GET', path: '/profile', pick: (j) => ({ email: j.emailAddress, messages: j.messagesTotal, threads: j.threadsTotal }) },
+        { name: 'labels', desc: 'Marcadores (inclui INBOX, UNREAD, STARRED).', risk: 'read', method: 'GET', path: '/labels', pick: (j) => (j.labels ?? []).map((l) => ({ id: l.id, name: l.name })) },
+        { name: 'search', desc: 'Busca e-mails com a sintaxe do Gmail (ex.: "is:unread newer_than:2d", "from:fulano subject:nota"). Devolve remetente, assunto, data e trecho.', risk: 'read', params: { q: 'consulta do Gmail', limit: 'quantos (padrão 10)' }, defaults: { limit: 10 }, max: { limit: 20 }, custom: async ({ get, args }) => { const l = await get(`/messages?maxResults=${args.limit}${args.q ? `&q=${encodeURIComponent(args.q)}` : ''}`); const ids = (l?.messages ?? []).map((m) => m.id); const items = await Promise.all(ids.map((id) => get(`/messages/${encodeURIComponent(id)}?format=metadata&metadataHeaders=From&metadataHeaders=Subject&metadataHeaders=Date`))); return items.map((m) => ({ id: m.id, threadId: m.threadId, from: hdr(m, 'from'), subject: hdr(m, 'subject'), date: hdr(m, 'date'), snippet: clip(plain(m.snippet), 160), unread: m.labelIds?.includes('UNREAD') })) } },
+        { name: 'message', desc: 'Lê um e-mail inteiro pelo id (texto e nomes dos anexos).', risk: 'read', method: 'GET', path: '/messages/{id}', params: { id: 'id do e-mail' }, req: ['id'], fixedQuery: { format: 'full' }, pick: (m) => ({ id: m.id, from: hdr(m, 'from'), to: hdr(m, 'to'), cc: hdr(m, 'cc'), subject: hdr(m, 'subject'), date: hdr(m, 'date'), text: clip(bodyText(m.payload), 6000), attachments: attachments(m.payload) }) },
+        { name: 'draft', desc: 'Cria um RASCUNHO (não envia).', risk: 'write', method: 'POST', path: '/drafts', params: { to: 'destinatário(s), separados por vírgula', subject: 'assunto', text: 'corpo em texto', cc: 'cópia (opcional)' }, req: ['to', 'subject', 'text'], bodyFn: (a) => ({ message: { raw: mime(a) } }), pick: (d) => ({ draftId: d.id }) },
+        { name: 'send', desc: 'ENVIA um e-mail agora (não dá para desfazer).', risk: 'danger', method: 'POST', path: '/messages/send', params: { to: 'destinatário(s), separados por vírgula', subject: 'assunto', text: 'corpo em texto', cc: 'cópia (opcional)' }, req: ['to', 'subject', 'text'], bodyFn: (a) => ({ raw: mime(a) }), pick: (m) => ({ id: m.id, threadId: m.threadId }) },
+      ],
+    },
+    {
+      ...googleBase, id: 'google-drive', label: 'Google Drive', desc: 'Buscar e ler arquivos; criar documentos, planilhas e pastas (só ele mexe nos arquivos que criou).',
+      base: 'https://www.googleapis.com/drive/v3', hosts: ['www.googleapis.com'], scopes: { read: [gs('drive.readonly')], write: [gs('drive.file')] }, test: 'about',
+      tools: [
+        { name: 'about', desc: 'Minha conta e espaço usado.', risk: 'read', method: 'GET', path: '/about', fixedQuery: { fields: 'user(displayName,emailAddress),storageQuota(limit,usage)' }, pick: (j) => ({ user: j.user?.displayName, email: j.user?.emailAddress, usedGB: Math.round(Number(j.storageQuota?.usage ?? 0) / 2 ** 30 * 10) / 10, limitGB: j.storageQuota?.limit ? Math.round(Number(j.storageQuota.limit) / 2 ** 30) : null }) },
+        { name: 'files', desc: 'Busca arquivos (sintaxe do Drive, ex.: "name contains \'nota\'", "mimeType=\'application/pdf\'"; vazio = mais recentes).', risk: 'read', method: 'GET', path: '/files', params: { q: 'consulta (opcional)', limit: 'quantos' }, query: { q: 'q', limit: 'pageSize' }, fixedQuery: { orderBy: 'modifiedTime desc', fields: 'files(id,name,mimeType,modifiedTime,size,webViewLink)' }, defaults: { limit: 20, q: 'trashed=false' }, max: { limit: 100 }, pick: (j) => (j.files ?? []).map((f) => ({ id: f.id, name: f.name, type: f.mimeType, modified: f.modifiedTime, sizeKB: f.size ? Math.round(f.size / 1024) : undefined, url: f.webViewLink })) },
+        { name: 'read', desc: 'Lê o TEXTO de um arquivo (Docs, Planilhas e Apresentações do Google, texto, JSON, CSV).', risk: 'read', params: { id: 'id do arquivo' }, req: ['id'], custom: async ({ get, args }) => { const id = encodeURIComponent(args.id); const meta = await get(`/files/${id}?fields=id,name,mimeType,size`); const mt = String(meta.mimeType); const text = mt === 'application/vnd.google-apps.document' || mt === 'application/vnd.google-apps.presentation' ? await get(`/files/${id}/export?mimeType=text/plain`) : mt === 'application/vnd.google-apps.spreadsheet' ? await get(`/files/${id}/export?mimeType=text/csv`) : /^(text\/|application\/json)/.test(mt) && Number(meta.size ?? 0) < 1_000_000 ? await get(`/files/${id}?alt=media`) : null; if (text === null) throw new Error(`tipo de arquivo sem leitura de texto: ${mt}`); return { name: meta.name, type: mt, text: clip(typeof text === 'string' ? text : JSON.stringify(text), 12000) } } },
+        { name: 'create', desc: 'Cria um documento, uma planilha ou uma pasta vazia (kind = document | spreadsheet | folder).', risk: 'write', method: 'POST', path: '/files', params: { kind: 'document|spreadsheet|folder', name: 'nome', parent: 'id da pasta (opcional)' }, req: ['kind', 'name'], bodyFn: (a) => { const kinds = { document: 'application/vnd.google-apps.document', spreadsheet: 'application/vnd.google-apps.spreadsheet', folder: 'application/vnd.google-apps.folder' }; if (!kinds[a.kind]) throw new Error('kind deve ser document, spreadsheet ou folder'); return { name: a.name, mimeType: kinds[a.kind], ...(a.parent ? { parents: [a.parent] } : {}) } }, fixedQuery: { fields: 'id,name,webViewLink' }, pick: (f) => ({ id: f.id, name: f.name, url: f.webViewLink }) },
+      ],
+    },
+    {
+      ...googleBase, id: 'google-calendar', label: 'Google Agenda', desc: 'Ver a agenda e criar ou apagar eventos (convites a outras pessoas não são enviados).',
+      base: 'https://www.googleapis.com/calendar/v3', hosts: ['www.googleapis.com'], scopes: { read: [gs('calendar.readonly')], write: [gs('calendar.events')] }, test: 'calendars',
+      tools: [
+        { name: 'calendars', desc: 'Minhas agendas.', risk: 'read', method: 'GET', path: '/users/me/calendarList', pick: (j) => (j.items ?? []).map((c) => ({ id: c.id, name: c.summary, primary: c.primary, timeZone: c.timeZone })) },
+        { name: 'events', desc: 'Próximos eventos de uma agenda (padrão: a principal, a partir de agora).', risk: 'read', method: 'GET', path: '/calendars/{calendar}/events', params: { calendar: 'id da agenda (padrão primary)', from: 'início ISO (padrão agora)', to: 'fim ISO (opcional)', limit: 'quantos' }, query: { from: 'timeMin', to: 'timeMax', limit: 'maxResults' }, fixedQuery: { singleEvents: 'true', orderBy: 'startTime' }, defaults: { calendar: 'primary', from: () => new Date().toISOString(), limit: 15 }, max: { limit: 50 }, pick: (j) => (j.items ?? []).map((e) => ({ id: e.id, title: e.summary, start: e.start?.dateTime ?? e.start?.date, end: e.end?.dateTime ?? e.end?.date, where: e.location, url: e.htmlLink })) },
+        { name: 'event_create', desc: 'Cria um evento. start/end em AAAA-MM-DDTHH:MM:SS-03:00 (ou só a data para o dia todo).', risk: 'write', method: 'POST', path: '/calendars/{calendar}/events', params: { calendar: 'id da agenda (padrão primary)', title: 'título', start: 'início', end: 'fim', description: 'texto (opcional)', where: 'local (opcional)', timeZone: 'fuso, ex.: America/Sao_Paulo (opcional)' }, req: ['title', 'start', 'end'], defaults: { calendar: 'primary' }, fixedQuery: { sendUpdates: 'none' }, bodyFn: (a) => ({ summary: a.title, ...(a.description ? { description: a.description } : {}), ...(a.where ? { location: a.where } : {}), start: when(a.start, a.timeZone, 'start'), end: when(a.end, a.timeZone, 'end') }), pick: (e) => ({ id: e.id, url: e.htmlLink }) },
+        { name: 'quick_add', desc: 'Cria um evento a partir de uma frase ("Dentista sexta 15h").', risk: 'write', method: 'POST', path: '/calendars/{calendar}/events/quickAdd', params: { calendar: 'id da agenda (padrão primary)', text: 'frase' }, req: ['text'], defaults: { calendar: 'primary' }, query: { text: 'text' }, fixedQuery: { sendUpdates: 'none' }, pick: (e) => ({ id: e.id, title: e.summary, start: e.start?.dateTime ?? e.start?.date, url: e.htmlLink }) },
+        { name: 'event_delete', desc: 'Apaga um evento (não volta).', risk: 'danger', method: 'DELETE', path: '/calendars/{calendar}/events/{event_id}', params: { calendar: 'id da agenda (padrão primary)', event_id: 'id do evento' }, req: ['event_id'], defaults: { calendar: 'primary' }, fixedQuery: { sendUpdates: 'none' } },
+      ],
+    },
+    {
+      ...googleBase, id: 'google-sheets', label: 'Google Planilhas', desc: 'Ler e escrever células e linhas.',
+      base: 'https://sheets.googleapis.com/v4/spreadsheets', hosts: ['sheets.googleapis.com'], scopes: { read: [gs('spreadsheets.readonly')], write: [gs('spreadsheets')] }, test: null,
+      tools: [
+        { name: 'info', desc: 'Título e abas de uma planilha.', risk: 'read', method: 'GET', path: '/{id}', params: { id: 'id da planilha' }, req: ['id'], fixedQuery: { fields: 'properties.title,sheets.properties(title,gridProperties)' }, pick: (j) => ({ title: j.properties?.title, tabs: (j.sheets ?? []).map((s) => ({ name: s.properties?.title, rows: s.properties?.gridProperties?.rowCount, cols: s.properties?.gridProperties?.columnCount })) }) },
+        { name: 'read', desc: 'Lê um intervalo (ex.: Página1!A1:D20).', risk: 'read', method: 'GET', path: '/{id}/values/{range}', params: { id: 'id da planilha', range: 'intervalo A1' }, req: ['id', 'range'], pick: (j) => ({ range: j.range, values: j.values ?? [] }) },
+        { name: 'append', desc: 'Acrescenta uma linha (ou várias) ao fim da tabela do intervalo. values = lista de valores, ou lista de listas.', risk: 'write', method: 'POST', path: '/{id}/values/{range}:append', params: { id: 'id da planilha', range: 'aba ou intervalo, ex.: Página1!A:D', values: 'JSON: ["a",1] ou [["a",1],["b",2]]' }, req: ['id', 'range', 'values'], json: ['values'], fixedQuery: { valueInputOption: 'USER_ENTERED', insertDataOption: 'INSERT_ROWS' }, bodyFn: (a) => ({ values: rows(a.values) }), pick: (j) => ({ range: j.updates?.updatedRange, rows: j.updates?.updatedRows }) },
+        { name: 'update', desc: 'Substitui o conteúdo de um intervalo (sobrescreve as células).', risk: 'write', method: 'PUT', path: '/{id}/values/{range}', params: { id: 'id da planilha', range: 'intervalo A1', values: 'JSON: lista de listas' }, req: ['id', 'range', 'values'], json: ['values'], fixedQuery: { valueInputOption: 'USER_ENTERED' }, bodyFn: (a) => ({ values: rows(a.values) }), pick: (j) => ({ range: j.updatedRange, cells: j.updatedCells }) },
+      ],
+    },
+    {
+      ...googleBase, id: 'google-docs', label: 'Google Docs', desc: 'Ler documentos e acrescentar texto ao fim.',
+      base: 'https://docs.googleapis.com/v1/documents', hosts: ['docs.googleapis.com'], scopes: { read: [gs('documents.readonly')], write: [gs('documents')] }, test: null,
+      tools: [
+        { name: 'read', desc: 'Lê o texto de um documento.', risk: 'read', method: 'GET', path: '/{id}', params: { id: 'id do documento' }, req: ['id'], pick: (d) => ({ title: d.title, text: clip(docText(d), 12000) }) },
+        { name: 'append', desc: 'Acrescenta texto ao fim do documento.', risk: 'write', method: 'POST', path: '/{id}:batchUpdate', params: { id: 'id do documento', text: 'texto' }, req: ['id', 'text'], bodyFn: (a) => ({ requests: [{ insertText: { endOfSegmentLocation: {}, text: `${String(a.text)}\n` } }] }), pick: (j) => ({ documentId: j.documentId }) },
+      ],
+    },
+    {
+      ...googleBase, id: 'google-tasks', label: 'Google Tarefas', desc: 'Listas e tarefas.',
+      base: 'https://tasks.googleapis.com/tasks/v1', hosts: ['tasks.googleapis.com'], scopes: { read: [gs('tasks.readonly')], write: [gs('tasks')] }, test: 'lists',
+      tools: [
+        { name: 'lists', desc: 'Minhas listas de tarefas.', risk: 'read', method: 'GET', path: '/users/@me/lists', pick: (j) => (j.items ?? []).map((l) => ({ id: l.id, title: l.title })) },
+        { name: 'tasks', desc: 'Tarefas de uma lista (padrão: a principal; só as pendentes).', risk: 'read', method: 'GET', path: '/lists/{list}/tasks', params: { list: 'id da lista (padrão @default)' }, defaults: { list: '@default' }, fixedQuery: { showCompleted: 'false', maxResults: '50' }, pick: (j) => (j.items ?? []).map((t) => ({ id: t.id, title: t.title, due: t.due, notes: clip(t.notes, 200), status: t.status })) },
+        { name: 'task_create', desc: 'Cria uma tarefa (due em AAAA-MM-DD, opcional).', risk: 'write', method: 'POST', path: '/lists/{list}/tasks', params: { list: 'id da lista (padrão @default)', title: 'título', notes: 'notas (opcional)', due: 'data AAAA-MM-DD (opcional)' }, req: ['title'], defaults: { list: '@default' }, bodyFn: (a) => ({ title: a.title, ...(a.notes ? { notes: a.notes } : {}), ...(a.due ? { due: `${iso(a.due, 'due').slice(0, 10)}T00:00:00.000Z` } : {}) }), pick: (t) => ({ id: t.id, title: t.title }) },
+        { name: 'task_complete', desc: 'Conclui uma tarefa.', risk: 'write', method: 'PATCH', path: '/lists/{list}/tasks/{task_id}', params: { list: 'id da lista (padrão @default)', task_id: 'id da tarefa' }, req: ['task_id'], defaults: { list: '@default' }, fixedBody: { status: 'completed' }, pick: (t) => ({ id: t.id, status: t.status }) },
+      ],
+    },
+    {
+      ...googleBase, id: 'google-contacts', label: 'Google Contatos', desc: 'Buscar contatos (nome, e-mail e telefone). Só leitura.',
+      base: 'https://people.googleapis.com/v1', hosts: ['people.googleapis.com'], scopes: { read: [gs('contacts.readonly')], write: [] }, test: 'list', testArgs: { limit: '1' },
+      tools: [
+        { name: 'search', desc: 'Busca contatos por nome, e-mail ou telefone.', risk: 'read', method: 'GET', path: '/people:searchContacts', params: { query: 'texto', limit: 'quantos' }, req: ['query'], query: { query: 'query', limit: 'pageSize' }, fixedQuery: { readMask: 'names,emailAddresses,phoneNumbers' }, defaults: { limit: 10 }, max: { limit: 30 }, pick: (j) => (j.results ?? []).map((r) => ({ name: r.person?.names?.[0]?.displayName, emails: r.person?.emailAddresses?.map((e) => e.value), phones: r.person?.phoneNumbers?.map((p) => p.value) })) },
+        { name: 'list', desc: 'Meus contatos (ordem alfabética).', risk: 'read', method: 'GET', path: '/people/me/connections', params: { limit: 'quantos' }, query: { limit: 'pageSize' }, fixedQuery: { personFields: 'names,emailAddresses,phoneNumbers', sortOrder: 'FIRST_NAME_ASCENDING' }, defaults: { limit: 30 }, max: { limit: 100 }, pick: (j) => (j.connections ?? []).map((p) => ({ name: p.names?.[0]?.displayName, emails: p.emailAddresses?.map((e) => e.value), phones: p.phoneNumbers?.map((x) => x.value) })) },
+      ],
+    },
+  ]
+}
+
+const token = (label, help) =>({ name: 'token', label, secret: true, required: true, placeholder: help })
 
 export const CONNECTORS = [
   // ---------------------------------------------------------------------------------------------------- código
@@ -335,6 +434,9 @@ export const CONNECTORS = [
       { name: 'taxa', desc: 'Cotação de uma moeda em outras (ex.: de=USD para=BRL,EUR) e, se informar valor, a conversão.', risk: 'read', method: 'GET', path: '/latest/{de}', params: { de: 'moeda de origem, ex.: USD', para: 'moedas de destino separadas por vírgula', valor: 'quantia a converter (opcional)' }, req: ['de'], pick: (j, a) => { const want = String(a.para ?? '').toUpperCase().split(/[,\s]+/).filter(Boolean); const rates = Object.fromEntries(Object.entries(j.rates ?? {}).filter(([k]) => !want.length || want.includes(k)).slice(0, 30)); const v = Number(a.valor); return { base: j.base_code, updated: j.time_last_update_utc, rates, ...(Number.isFinite(v) && a.valor !== undefined ? { converted: Object.fromEntries(Object.entries(rates).map(([k, r]) => [k, Math.round(v * r * 100) / 100])) } : {}) } } },
     ],
   },
+
+  // ---------------------------------------------------------------------------------------------------- Google (login pelo navegador, OAuth: google.mjs)
+  ...googleConnectors(),
 
   // ---------------------------------------------------------------------------------------------------- genérico
   {

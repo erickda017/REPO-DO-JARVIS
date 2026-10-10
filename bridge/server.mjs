@@ -112,7 +112,8 @@ const command = createCommand({ allowNoOrigin: ALLOW_NO_ORIGIN, envKey: () => ba
 await command.voice.ready()
 await command.settings.ready()
 await command.access.ready()
-await command.connectors.ready() // after settings: it reads its secrets from there
+await command.google.ready()
+await command.connectors.ready() // after settings and Google: it reads its secrets from there
 
 /**
  * The orchestrator model. Override with JARVIS_MODEL to trade quality for pace

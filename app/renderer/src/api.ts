@@ -111,9 +111,19 @@ export interface ConnectorView {
   id: string; label: string; category: string; desc: string; help: string; selfHosted: boolean; hasTest: boolean
   fields: ConnectorField[]; ready: boolean; missing: string[]; enabled: boolean; write: boolean
   tools: { name: string; desc: string; risk: 'read' | 'write' | 'danger' }[]
+  google?: { account: string; needsRead: boolean; needsWrite: boolean }
+  consent?: { authUrl: string }
 }
 
+export interface GoogleStatus { configured: boolean; clientId: string; connected: boolean; email: string; scopes: string[]; pending: boolean; lastError: string | null }
+
 export const api = {
+  googleStatus: () => call<GoogleStatus>('GET', 'google/status'),
+  googleClient: (clientId: string, clientSecret: string) => call<GoogleStatus>('POST', 'google/client', { clientId, clientSecret }),
+  googleSignin: () => call<{ authUrl: string }>('POST', 'google/signin'),
+  googleCancel: () => call<GoogleStatus>('POST', 'google/cancel'),
+  googleSignout: () => call<GoogleStatus>('POST', 'google/signout'),
+  googleForget: () => call<GoogleStatus>('POST', 'google/forget'),
   connectors: () => call<ConnectorView[]>('GET', 'connectors'),
   connectorConfig: (id: string, values: Record<string, string>) => call<ConnectorView>('POST', 'connectors/config', { id, values }),
   connectorEnable: (id: string, on: boolean) => call<ConnectorView>('POST', 'connectors/enable', { id, on }),

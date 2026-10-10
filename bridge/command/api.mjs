@@ -46,7 +46,7 @@ const PERSONA = personaText() + '\n\n' +
   'Responda em português do Brasil, de forma direta e curta ' +
   '(no máximo duas ou três frases, a menos que peçam mais). Não invente fatos nem ações que não executou.'
 
-export function createApi({ openai, health, router, services, projects, tasks, timer, audit, voice, settings, access, monitor, profiles, agent, alerts, missions, memory, genui, connectors, allowNoOrigin }) {
+export function createApi({ openai, health, router, services, projects, tasks, timer, audit, voice, settings, access, monitor, profiles, agent, alerts, missions, memory, genui, connectors, google, allowNoOrigin }) {
   const PREFIX = '/api/command/'
 
   const routes = {
@@ -121,6 +121,13 @@ export function createApi({ openai, health, router, services, projects, tasks, t
     'POST connectors/write': async (b) => connectors.setWrite(String(b.id ?? ''), b.on === true),
     'POST connectors/clear': async (b) => connectors.clear(String(b.id ?? '')),
     'POST connectors/test': async (b) => connectors.test(String(b.id ?? '')),
+    // Google account (OAuth in the system browser): the client id/secret are the owner's own; tokens never leave the bridge
+    'GET google/status': async () => google.status(),
+    'POST google/client': async (b) => google.setClient(b.clientId, b.clientSecret),
+    'POST google/signin': async () => ({ authUrl: (await google.begin([])).authUrl }),
+    'POST google/cancel': async () => (google.cancel(), google.status()),
+    'POST google/signout': async () => google.signOut(),
+    'POST google/forget': async () => google.forgetClient(),
     'POST providers/addkey': async (b) => {
       await settings.addKey(String(b.base ?? ''))
       return health.snapshot()
