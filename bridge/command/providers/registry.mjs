@@ -57,6 +57,10 @@ export function createRegistry(providerConfigs = [], deps = {}) {
       // A server on this very machine cannot bill anyone, so it is never "paid", whatever an old config says.
       paid: isExternal(cfg) ? (typeof cfg.paid === 'boolean' ? cfg.paid : true) : false,
       allowFallback: cfg.allowFallback !== false,
+      // 'cheap' = fast/free (local) models for triage, summaries, checks; 'strong' = the capable ones, kept for hard work.
+      tier: cfg.tier === 'cheap' || cfg.tier === 'strong' ? cfg.tier : isExternal(cfg) ? 'strong' : 'cheap',
+      // Optional USD per 1M tokens {in, out}: only used to ESTIMATE spend in the router stats.
+      price: cfg.price && Number.isFinite(cfg.price.in) && Number.isFinite(cfg.price.out) ? { in: cfg.price.in, out: cfg.price.out } : null,
       warning: cfg.configWarning ?? null,
       keyEnv: cfg.apiKeyEnv ?? (cfg.type === 'anthropic' ? 'ANTHROPIC_API_KEY' : cfg.type === 'gemini' ? 'GEMINI_API_KEY' : cfg.type === 'typesafe-jev' ? 'TYPESAFE_API_KEY' : null),
       adapter: factory(cfg, deps),

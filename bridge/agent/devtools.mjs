@@ -206,5 +206,11 @@ export function buildDevTools({ access, env = process.env, dataDir }) {
     return { data: { path: file, resolution: out.trim(), bytes: size }, verified: size > 5000, evidence: `arquivo ${size} bytes, ${out.trim()}` }
   })
 
+  // Autonomy level (owner's switch, off by default): tests/builds and dev servers of granted projects run without asking each time.
+  for (const n of ['project_run', 'server_start']) T[n].relaxFlag = 'autoDev'
+  // project_run produces an OBSERVATION (exit code + output) the agent must read; it is not an action whose success the loop could verify,
+  // so it does not count as an "unverified risky action" in the status (the mission's independent auditor checks the real outcome).
+  T.project_run.observe = true
+
   return T
 }

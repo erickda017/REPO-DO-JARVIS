@@ -41,11 +41,12 @@ async function readJson(req) {
  * Nothing here returns a key: the config exposes env-var *names* and provider
  * status never includes request headers.
  */
-const PERSONA =
-  'Você é o JARVIS, assistente pessoal do usuário. Responda em português do Brasil, de forma direta e curta ' +
+import { personaText } from '../agent/perfil.mjs'
+const PERSONA = personaText() + '\n\n' +
+  'Responda em português do Brasil, de forma direta e curta ' +
   '(no máximo duas ou três frases, a menos que peçam mais). Não invente fatos nem ações que não executou.'
 
-export function createApi({ openai, health, router, services, projects, tasks, timer, audit, voice, settings, access, monitor, profiles, agent, alerts, allowNoOrigin }) {
+export function createApi({ openai, health, router, services, projects, tasks, timer, audit, voice, settings, access, monitor, profiles, agent, alerts, missions, memory, allowNoOrigin }) {
   const PREFIX = '/api/command/'
 
   const routes = {
@@ -57,6 +58,7 @@ export function createApi({ openai, health, router, services, projects, tasks, t
       timer: await timer.get(),
     }),
     'GET ai/providers': async () => health.snapshot(),
+    'GET ai/stats': async () => router.stats(),
     'POST ai/check': async (b) => {
       if (typeof b.providerId !== 'string') throw new HttpError(400, 'providerId is required')
       return health.check(b.providerId, { inference: b.inference === true, confirm: b.confirm === true })
@@ -116,7 +118,13 @@ export function createApi({ openai, health, router, services, projects, tasks, t
     'POST agent/run': async (b) => ({ jobId: agent.run({ text: b.text, history: Array.isArray(b.history) ? b.history : [], sensitive: b.sensitive === true, confirmSpend: b.confirm === true }) }),
     'GET agent/job': async (q) => agent.view(String(q.id ?? '')) ?? Promise.reject(new HttpError(404, 'unknown job')),
     'POST agent/confirm': async (b) => ({ ok: agent.confirm(String(b.id ?? ''), b.approve === true) }),
-    'GET agent/access': async () => access.snapshot(),
+    'GET agent/access': async () => ({ ...access.snapshot(), autoDev: settings.flags.get('autoDev') === true }),
+    // Autonomy: let tests/servers of granted projects run without a confirmation each time.
+    'POST agent/autonomy': async (b) => {
+      await settings.setFlag('autoDev', b.autoDev === true)
+      audit.record('agent.autonomy', { autoDev: b.autoDev === true })
+      return { autoDev: settings.flags.get('autoDev') === true }
+    },
     'POST agent/access': async (b) => {
       if (typeof b.tool === 'string') await access.setTool(b.tool, b.on === true)
       if (typeof b.addRoot === 'string') await access.addRoot(b.addRoot, typeof b.label === 'string' ? b.label : undefined)
@@ -143,6 +151,17 @@ export function createApi({ openai, health, router, services, projects, tasks, t
         return { ok: false, error: String(e?.message ?? e).slice(0, 300) }
       }
     },
+    // Missions: a goal in, a planned/verified result out (see agent/orquestrador.mjs)
+    'POST mission/start': async (b) => missions.start({ goal: b.goal, sensitive: b.sensitive === true, confirmSpend: b.confirm === true, limits: b.limits && typeof b.limits === 'object' ? b.limits : {} }),
+    'GET mission/view': async (q) => (await missions.view(String(q.id ?? ''))) ?? Promise.reject(new HttpError(404, 'unknown mission')),
+    'GET mission/list': async () => missions.list(),
+    'GET mission/roles': async () => Object.entries(missions.ROLES).map(([id, r]) => ({ id, label: r.label, tier: r.tier ?? null, readOnly: r.readOnly, tools: r.tools })),
+    'POST mission/cancel': async (b) => ({ ok: await missions.cancel(String(b.id ?? '')) }),
+    'POST mission/confirm': async (b) => ({ confirmed: missions.confirm(String(b.id ?? ''), b.approve === true) }),
+    'POST mission/answer': async (b) => ({ ok: await missions.answer(String(b.id ?? ''), String(b.text ?? '')) }),
+    'POST mission/resume': async (b) => ({ ok: await missions.resume(String(b.id ?? '')) }),
+    'GET memory': async () => memory.list({ limit: 50 }),
+    'POST memory/forget': async (b) => ({ ok: await memory.forget(String(b.id ?? '')) }),
     'GET agent/alerts': async () => alerts.slice(-10),
     'GET agent/profile': async () => profiles.status(),
     'GET monitor/summary': async () => ({ summary: monitor.summary(), report: monitor.report(30), history: monitor.history().slice(-60), disks: await monitor.disks().catch(() => []) }),
