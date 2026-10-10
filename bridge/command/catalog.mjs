@@ -11,6 +11,8 @@ export const CATALOG = [
   { id: 'deepseek', type: 'openai-compat', label: 'DeepSeek', baseUrl: 'https://api.deepseek.com', apiKeyEnv: 'DEEPSEEK_API_KEY', priority: 45 },
   { id: 'openrouter', type: 'openai-compat', label: 'OpenRouter', baseUrl: 'https://openrouter.ai/api/v1', apiKeyEnv: 'OPENROUTER_API_KEY', priority: 50 },
   { id: 'nvidia', type: 'openai-compat', label: 'NVIDIA NIM (build.nvidia.com)', baseUrl: 'https://integrate.api.nvidia.com/v1', apiKeyEnv: 'NVIDIA_API_KEY', timeoutMs: 20000, priority: 55 }, // the model list is long and slow
+  // A model the owner runs in Google Colab behind a temporary Cloudflare tunnel: the address changes every session, so it is pasted in the app (editableUrl), not fixed here. No key (llama-cpp-python does not check one). Leaves this PC, so it is `external`; it costs nothing.
+  { id: 'colab', type: 'openai-compat', label: 'Colab (túnel Cloudflare)', baseUrl: '', editableUrl: true, external: true, paid: false, defaultModel: 'qwen2.5-coder-14b', timeoutMs: 15000, priority: 52 },
   { id: 'groq', type: 'openai-compat', label: 'Groq', baseUrl: 'https://api.groq.com/openai/v1', apiKeyEnv: 'GROQ_API_KEY', priority: 60 },
   { id: 'mistral', type: 'openai-compat', label: 'Mistral', baseUrl: 'https://api.mistral.ai/v1', apiKeyEnv: 'MISTRAL_API_KEY', priority: 70 },
 ].map((p) => ({ models: [], capabilities: ['chat', 'coding'], enabled: false, ...p }))

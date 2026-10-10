@@ -11,8 +11,12 @@ import { request, raiseForStatus, sse } from '../http.mjs'
  * keyless local servers work.
  */
 export function openaiCompatProvider(cfg, { fetch: fetchImpl = fetch, env = process.env } = {}) {
-  if (!cfg.baseUrl) throw new ProviderError('unconfigured', `provider ${cfg.id}: baseUrl is required`)
-  const baseUrl = cfg.baseUrl.replace(/\/+$/, '')
+  if (!cfg.baseUrl && !cfg.editableUrl) throw new ProviderError('unconfigured', `provider ${cfg.id}: baseUrl is required`)
+  // Read on every call: an editableUrl provider (a Colab tunnel) gets a new address while the bridge keeps running.
+  const base = () => {
+    if (!cfg.baseUrl) throw new ProviderError('unconfigured', `${cfg.id}: cole o endereço (URL) atual na tela IAs`, { provider: cfg.id })
+    return cfg.baseUrl.replace(/\/+$/, '')
+  }
   const keyName = cfg.apiKeyEnv
   const timeoutMs = cfg.timeoutMs ?? 8000
   const key = () => (keyName ? env[keyName] || '' : '')
@@ -26,7 +30,7 @@ export function openaiCompatProvider(cfg, { fetch: fetchImpl = fetch, env = proc
     type: 'openai-compat',
 
     async probe() {
-      const res = await request(fetchImpl, `${baseUrl}/models`, { headers: headers(), timeoutMs, provider: cfg.id })
+      const res = await request(fetchImpl, `${base()}/models`, { headers: headers(), timeoutMs, provider: cfg.id })
       const endpoint = { state: 'ok', latencyMs: res.latencyMs }
       if (keyName && !key()) {
         return { endpoint, auth: { state: 'fail', detail: `${keyName} is not set` }, models: null }
@@ -47,7 +51,7 @@ export function openaiCompatProvider(cfg, { fetch: fetchImpl = fetch, env = proc
     /** Token by token: yields { delta } and, when the server reports it, a final { usage }. */
     async *stream({ model, prompt, messages: history, system, maxTokens = 512, signal }) {
       const messages = [...(system ? [{ role: 'system', content: system }] : []), ...(history ?? [{ role: 'user', content: prompt }])]
-      for await (const ev of sse(fetchImpl, `${baseUrl}/chat/completions`, { headers: headers(), body: JSON.stringify({ model, messages, stream: true, [cfg.tokenParam ?? 'max_tokens']: maxTokens }), idleTimeoutMs: cfg.inferTimeoutMs ?? 120000, provider: cfg.id, signal })) {
+      for await (const ev of sse(fetchImpl, `${base()}/chat/completions`, { headers: headers(), body: JSON.stringify({ model, messages, stream: true, [cfg.tokenParam ?? 'max_tokens']: maxTokens }), idleTimeoutMs: cfg.inferTimeoutMs ?? 120000, provider: cfg.id, signal })) {
         if (ev.error) throw new ProviderError('bad_response', String(ev.error.message ?? 'stream error').slice(0, 160), { provider: cfg.id })
         const d = ev.choices?.[0]?.delta?.content ?? ev.choices?.[0]?.message?.content
         if (typeof d === 'string' && d) yield { delta: d }
@@ -57,7 +61,7 @@ export function openaiCompatProvider(cfg, { fetch: fetchImpl = fetch, env = proc
 
     async infer({ model, prompt, messages: history, system, maxTokens = 512 }) {
       const messages = [...(system ? [{ role: 'system', content: system }] : []), ...(history ?? [{ role: 'user', content: prompt }])]
-      const res = await request(fetchImpl, `${baseUrl}/chat/completions`, {
+      const res = await request(fetchImpl, `${base()}/chat/completions`, {
         method: 'POST',
         headers: headers(),
         // OpenAI's newer models reject `max_tokens`; local servers and OpenRouter still take it.

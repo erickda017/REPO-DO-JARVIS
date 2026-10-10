@@ -44,6 +44,7 @@ export function createRegistry(providerConfigs = [], deps = {}) {
     if (entries.has(cfg.id)) throw new ProviderError('unconfigured', `duplicate provider id "${cfg.id}"`)
     entries.set(cfg.id, {
       cfg,
+      editableUrl: cfg.editableUrl === true, // the address is pasted by the owner at runtime (a Colab tunnel); read from cfg.baseUrl on every call
       extraOf, // set on a provider the owner added as another API key of `extraOf`
       id: cfg.id,
       type: cfg.type,
@@ -95,9 +96,10 @@ export function createRegistry(providerConfigs = [], deps = {}) {
       return true
     },
     /** Runtime overrides from the owner's settings: on/off, model, priority. */
-    update(id, { enabled, model, priority, free, allowedModels }) {
+    update(id, { enabled, model, priority, free, allowedModels, baseUrl }) {
       const p = entries.get(id)
       if (!p) return
+      if (baseUrl !== undefined && p.editableUrl) p.cfg.baseUrl = baseUrl
       if (enabled !== undefined) p.enabled = enabled
       // "Free" is the owner's word that the chosen model costs nothing; a loopback provider is always free anyway.
       if (free !== undefined && p.external) p.paid = !free

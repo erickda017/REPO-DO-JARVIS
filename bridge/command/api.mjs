@@ -117,7 +117,8 @@ export function createApi({ openai, health, router, services, projects, tasks, t
     'POST keys': async (b) => settings.setKey(String(b.name ?? ''), b.value),
     'POST keys/clear': async (b) => settings.clearKey(String(b.name ?? '')),
     'POST providers/update': async (b) => {
-      await settings.setProvider(String(b.id ?? ''), { enabled: b.enabled, model: b.model, priority: b.priority, free: b.free, allowedModels: b.allowedModels })
+      await settings.setProvider(String(b.id ?? ''), { enabled: b.enabled, model: b.model, priority: b.priority, free: b.free, allowedModels: b.allowedModels, baseUrl: b.baseUrl })
+      if (b.baseUrl) await health.check(String(b.id)).catch(() => {}) // a new address: say right away whether it answers
       return health.snapshot()
     },
     // Connectors (external services the agent may use): credentials, on/off, permission to change things, a read-only test

@@ -18,6 +18,8 @@ export interface ProviderView {
   model: string | null
   allowedModels: string[]
   extraOf: string | null
+  editableUrl?: boolean // the address is pasted by the owner (Colab tunnel)
+  baseUrl?: string
   capabilities: string[]
   status: null | { endpoint: Check; auth: Check; model: Check; inference: Check; checkedAt: string; models?: string[] | null }
   recentErrors: { kind: string; message: string; at: string }[]
@@ -196,7 +198,7 @@ export const api = {
   clearKey: (name: string) => call<KeyStatus[]>('POST', 'keys/clear', { name }),
   addKeyProvider: (base: string) => call<ProviderView[]>('POST', 'providers/addkey', { base }),
   removeKeyProvider: (id: string) => call<ProviderView[]>('POST', 'providers/removekey', { id }),
-  providerUpdate:(id: string, patch: { enabled?: boolean; model?: string; priority?: number; free?: boolean; allowedModels?: string[] }) => call<ProviderView[]>('POST', 'providers/update', { id, ...patch }),
+  providerUpdate:(id: string, patch: { enabled?: boolean; model?: string; priority?: number; free?: boolean; allowedModels?: string[]; baseUrl?: string }) => call<ProviderView[]>('POST', 'providers/update', { id, ...patch }),
   voice: () => call<VoiceStatus>('GET', 'voice'),
   voiceSet: (apiKey?: string, voiceId?: string) => call<VoiceStatus>('POST', 'voice', { apiKey, voiceId }),
   voiceTest: () => call<VoiceTest>('POST', 'voice/test'),

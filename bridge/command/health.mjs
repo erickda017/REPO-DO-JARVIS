@@ -102,6 +102,7 @@ export function createHealth({ registry, audit, clock = Date.now }) {
         model: p.defaultModel,
         allowedModels: p.allowedModels,
         extraOf: p.extraOf,
+        ...(p.editableUrl ? { editableUrl: true, baseUrl: p.cfg.baseUrl || '' } : {}),
         capabilities: p.capabilities,
         status: last.get(p.id) ?? null,
         recentErrors: errors.get(p.id) ?? [],

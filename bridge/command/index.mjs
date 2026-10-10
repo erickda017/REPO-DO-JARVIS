@@ -71,7 +71,20 @@ export function createCommand({ config = loadConfig(), fetch: fetchImpl = fetch,
     }
     if (alerts.length > 20) alerts.splice(0, alerts.length - 20)
   }
+  /** A tunnel address (Colab) dies when the session ends: probe the ones in use and warn once when one stops answering, until it answers again. */
+  const checkTunnels = async () => {
+    for (const p of registry.list().filter((x) => x.editableUrl && x.enabled && x.cfg.baseUrl)) {
+      const id = 'tunnel-' + p.id
+      const r = await health.check(p.id).catch(() => null)
+      const up = r?.endpoint?.state === 'ok' && r.models != null
+      const i = alerts.findIndex((a) => a.id === id)
+      if (up && i >= 0) alerts.splice(i, 1)
+      else if (!up && i < 0) alerts.push({ id, level: 'warning', at: clock(), text: `${p.label} não está respondendo: a sessão do Colab provavelmente caiu. Gere uma URL nova e cole na tela IAs.` })
+    }
+  }
   if (persist) {
+    setTimeout(checkTunnels, 30_000).unref?.()
+    setInterval(checkTunnels, 60_000).unref?.()
     monitor.start()
     setTimeout(checkDisks, 20_000).unref?.()
     setInterval(checkDisks, 5 * 60_000).unref?.()

@@ -5,6 +5,20 @@ const NAME_RE = /^[A-Z][A-Z0-9_]{2,60}$/
 const VALUE_RE = /^[^\s]{8,400}$/
 const MODEL_RE = /^[\w.:/-]{1,120}$/
 
+/** The owner's pasted tunnel address -> `https://host/v1` (empty clears it). Only https, a real host name, no login/query/fragment: this URL receives the prompts. */
+export function normalizeTunnelUrl(raw) {
+  const s = String(raw ?? '').trim()
+  if (!s) return ''
+  let u
+  try { u = new URL(s) } catch { throw new Error('endereço inválido: cole a URL completa, começando com https://') }
+  if (u.protocol !== 'https:') throw new Error('o endereço precisa começar com https://')
+  if (u.username || u.password || u.search || u.hash) throw new Error('endereço sem usuário, "?" nem "#"')
+  if (!u.hostname.includes('.') || /^[\d.]+$/.test(u.hostname) || u.hostname.startsWith('[')) throw new Error('use o nome do túnel (ex.: algo.trycloudflare.com), não um IP')
+  const path = u.pathname.replace(/\/+$/, '')
+  if (path !== '' && path !== '/v1') throw new Error('cole só o endereço do túnel (o /v1 é opcional)')
+  return `https://${u.host}/v1`
+}
+
 /**
  * Per-user settings the owner changes from the app instead of editing files or environment
  * variables: provider API keys, and per-provider overrides (on/off, model, priority).
@@ -128,9 +142,14 @@ export function createSettings({ file, getRegistry, baseEnv = process.env, audit
       audit?.record('settings.key.remove', { id })
     },
 
-    async setProvider(id, { enabled, model, priority, free, allowedModels }) {
-      if (!registry.get(id)) throw new Error('unknown provider')
+    async setProvider(id, { enabled, model, priority, free, allowedModels, baseUrl }) {
+      const prov = registry.get(id)
+      if (!prov) throw new Error('unknown provider')
       const o = { ...(data.overrides[id] ?? {}) }
+      if (baseUrl !== undefined) {
+        if (!prov.editableUrl) throw new Error('this provider has a fixed address')
+        o.baseUrl = normalizeTunnelUrl(baseUrl)
+      }
       if (enabled !== undefined) o.enabled = Boolean(enabled)
       if (free !== undefined) o.free = Boolean(free)
       if (allowedModels !== undefined) {
@@ -148,7 +167,7 @@ export function createSettings({ file, getRegistry, baseEnv = process.env, audit
       data.overrides[id] = o
       registry.update(id, o)
       await persist()
-      audit?.record('settings.provider', { id, ...o })
+      audit?.record('settings.provider', { id, ...o, ...(o.baseUrl !== undefined ? { baseUrl: Boolean(o.baseUrl) } : {}) }) // the tunnel address is a keyless door: never written to the log
     },
   }
 }

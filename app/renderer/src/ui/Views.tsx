@@ -46,13 +46,22 @@ function ProviderControls({ p, keys, reload }: { p: ProviderView; keys: KeyStatu
   const [secret, setSecret] = useState('')
   const [model, setModel] = useState(p.model ?? '')
   const [err, setErr] = useState('')
+  const [url, setUrl] = useState((p.baseUrl ?? '').replace(/\/v1$/, ''))
   const [allowed, setAllowed] = useState((p.allowedModels ?? []).join('\n'))
   const allowedList = [...new Set(allowed.split(/\s*[\n,]\s*/).map((m) => m.trim()).filter(Boolean))]
   const key = keys.find((k) => k.name === p.keyEnv)
   const models = p.status?.models ?? []
   const act = (fn: () => Promise<unknown>) => () => void fn().then(() => setErr('')).catch((e) => setErr(e instanceof ApiError ? e.message : String(e))).finally(reload)
+  const down = p.editableUrl && p.enabled && p.status != null && (p.status.endpoint.state === 'fail' || p.status.models == null)
   return (
     <div className="controls">
+      {p.editableUrl && (
+        <div className="ctl">
+          <input value={url} onChange={(e) => setUrl(e.target.value)} placeholder="cole a URL do túnel (https://algo.trycloudflare.com)" aria-label={`Endereço de ${p.label}`} spellCheck={false} />
+          <button className="btn" disabled={url.trim() === (p.baseUrl ?? '').replace(/\/v1$/, '')} onClick={act(() => api.providerUpdate(p.id, { baseUrl: url.trim() }))}>Salvar endereço</button>
+        </div>
+      )}
+      {down && <p className="warn-text small" role="alert">Sem resposta neste endereço. A URL do túnel muda a cada sessão do Colab: gere uma nova, cole acima e salve.</p>}
       {p.keyEnv && (
         <div className="ctl">
           <input type="password" autoComplete="off" value={secret} onChange={(e) => setSecret(e.target.value)} placeholder={key?.configured ? `chave salva (…${key.last4}, ${key.source})` : `cole a chave (${p.keyEnv})`} aria-label={`Chave de ${p.label}`} />
