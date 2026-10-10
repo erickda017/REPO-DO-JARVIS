@@ -57,7 +57,10 @@ function ProviderControls({ p, keys, reload }: { p: ProviderView; keys: KeyStatu
         <div className="ctl">
           <input type="password" autoComplete="off" value={secret} onChange={(e) => setSecret(e.target.value)} placeholder={key?.configured ? `chave salva (…${key.last4}, ${key.source})` : `cole a chave (${p.keyEnv})`} aria-label={`Chave de ${p.label}`} />
           <button className="btn" disabled={!secret} onClick={act(() => api.setKey(p.keyEnv!, secret).then(() => setSecret('')))}>Salvar chave</button>
-          {key?.source === 'panel' && <button className="btn" onClick={act(() => api.clearKey(p.keyEnv!))}>Remover</button>}
+          {key?.source === 'panel' && !p.extraOf && <button className="btn" onClick={act(() => api.clearKey(p.keyEnv!))}>Remover</button>}
+          {p.extraOf
+            ? <button className="btn" title="Apaga esta chave e esta entrada da lista" onClick={() => confirm(`Remover ${p.label} e a chave salva?`) && act(() => api.removeKeyProvider(p.id))()}>Remover esta chave</button>
+            : <button className="btn" title="Cria outra entrada deste serviço com uma chave própria: se a cota de uma acabar, o JARVIS usa a próxima" onClick={act(() => api.addKeyProvider(p.id))}>+ Outra chave</button>}
         </div>
       )}
       <div className="ctl">
@@ -129,7 +132,7 @@ export function AisView() {
       <h1>IAs</h1>
       <p className="dim lead">Cada IA responde a quatro perguntas separadas: alguém responde? aceita a autenticação? o modelo existe? uma inferência funcionou? Se a cota de uma acabar, o roteador passa para a próxima da lista, por prioridade, e deixa a esgotada de fora por 10 minutos.</p>
       <ul className="stack">
-        {ov?.providers.map((p) => (
+        {ov?.providers.filter((p) => !p.extraOf).flatMap((p) => [p, ...ov.providers.filter((x) => x.extraOf === p.id)]).map((p) => (
           <li key={p.id} className="panel prov">
             <div className="row-panel">
               <span className="dot big" style={{ background: TONE_COLOR[providerTone(p)] }} aria-hidden />

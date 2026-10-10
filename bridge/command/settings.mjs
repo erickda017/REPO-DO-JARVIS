@@ -16,8 +16,8 @@ const MODEL_RE = /^[\w.:/-]{1,120}$/
  */
 export function createSettings({ file, getRegistry, baseEnv = process.env, audit, vault = null } = {}) {
   // The registry is built with this store's env, so it is looked up lazily.
-  const registry = { list: () => getRegistry().list(), get: (id) => getRegistry().get(id), update: (id, o) => getRegistry().update(id, o) }
-  let data = { secrets: {}, overrides: {}, flags: {} }
+  const registry = { list: () => getRegistry().list(), get: (id) => getRegistry().get(id), update: (id, o) => getRegistry().update(id, o), addKey: (b, id, k) => getRegistry().addKey(b, id, k), removeKey: (id) => getRegistry().removeKey(id) }
+  let data = { secrets: {}, overrides: {}, flags: {}, extras: [] } // extras: [{ id, base, keyEnv }] = more API keys of one service, each its own provider
   let loaded = !file
   let chain = Promise.resolve()
 
@@ -30,7 +30,7 @@ export function createSettings({ file, getRegistry, baseEnv = process.env, audit
       await mkdir(dirname(file), { recursive: true })
       const tmp = `${file}.tmp`
       // With a vault the keys never touch the disk in the clear.
-      const out = vault ? { enc: Object.keys(data.secrets).length ? await vault.seal(JSON.stringify(data.secrets)) : '', overrides: data.overrides, flags: data.flags } : data
+      const out = vault ? { enc: Object.keys(data.secrets).length ? await vault.seal(JSON.stringify(data.secrets)) : '', overrides: data.overrides, flags: data.flags, extras: data.extras } : data
       await writeFile(tmp, JSON.stringify(out), { encoding: 'utf8', mode: 0o600 })
       await rename(tmp, file)
       await chmod(file, 0o600).catch(() => {})
@@ -56,12 +56,13 @@ export function createSettings({ file, getRegistry, baseEnv = process.env, audit
       try {
         const j = JSON.parse(await readFile(file, 'utf8'))
         const sealed = typeof j.enc === 'string' && j.enc ? JSON.parse(await vault.open(j.enc)) : null
-        data = { secrets: sealed ?? j.secrets ?? {}, overrides: j.overrides ?? {}, flags: j.flags ?? {} }
+        data = { secrets: sealed ?? j.secrets ?? {}, overrides: j.overrides ?? {}, flags: j.flags ?? {}, extras: Array.isArray(j.extras) ? j.extras : [] }
         // Old plaintext file: seal it now (nothing is lost if this fails; the next save retries).
         if (vault && !sealed && Object.keys(data.secrets).length) await persist().catch(() => {})
       } catch {
         /* first run */
       }
+      for (const e of data.extras) { try { registry.addKey(e.base, e.id, e.keyEnv) } catch { /* its base is gone: the entry stays dormant */ } }
       apply()
     },
 
@@ -97,6 +98,34 @@ export function createSettings({ file, getRegistry, baseEnv = process.env, audit
       await persist()
       audit?.record('settings.key.clear', { name })
       return this.keys()
+    },
+
+    /** Another API key for a service (Gemini, OpenRouter...): becomes a provider of its own that starts as a copy of the first one's choices. Up to 5 extra. */
+    async addKey(baseId) {
+      const base = registry.get(baseId)
+      if (!base || base.extraOf || !base.keyEnv) throw new Error('this provider takes one key only')
+      const n = [2, 3, 4, 5, 6].find((i) => !registry.get(`${baseId}-${i}`))
+      if (!n) throw new Error('at most 5 extra keys per provider')
+      const keyEnv = `${base.keyEnv}_${n}`
+      if (!NAME_RE.test(keyEnv)) throw new Error('key name too long')
+      const id = `${baseId}-${n}`
+      const p = registry.addKey(baseId, id, keyEnv)
+      data.extras.push({ id, base: baseId, keyEnv })
+      data.overrides[id] = { ...(p.defaultModel ? { model: p.defaultModel } : {}), priority: p.priority, allowedModels: p.allowedModels, ...(p.external ? { free: !p.paid } : {}) }
+      await persist()
+      audit?.record('settings.key.add', { id, base: baseId })
+      return id
+    },
+
+    async removeKey(id) {
+      const p = registry.get(id)
+      if (!p?.extraOf) throw new Error('only an added key can be removed')
+      delete data.secrets[p.keyEnv]
+      delete data.overrides[id]
+      data.extras = data.extras.filter((e) => e.id !== id)
+      registry.removeKey(id)
+      await persist()
+      audit?.record('settings.key.remove', { id })
     },
 
     async setProvider(id, { enabled, model, priority, free, allowedModels }) {

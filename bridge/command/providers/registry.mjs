@@ -38,11 +38,13 @@ function isExternal(cfg) {
  */
 export function createRegistry(providerConfigs = [], deps = {}) {
   const entries = new Map()
-  for (const cfg of providerConfigs) {
+  const build = (cfg, extraOf = null) => {
     const factory = FACTORIES[cfg.type]
     if (!factory) throw new ProviderError('unconfigured', `provider ${cfg.id}: unknown type "${cfg.type}"`)
     if (entries.has(cfg.id)) throw new ProviderError('unconfigured', `duplicate provider id "${cfg.id}"`)
     entries.set(cfg.id, {
+      cfg,
+      extraOf, // set on a provider the owner added as another API key of `extraOf`
       id: cfg.id,
       type: cfg.type,
       label: cfg.label ?? cfg.id,
@@ -68,9 +70,30 @@ export function createRegistry(providerConfigs = [], deps = {}) {
       adapter: factory(cfg, deps),
     })
   }
+  for (const cfg of providerConfigs) build(cfg)
   return {
     list: () => [...entries.values()],
     get: (id) => entries.get(id) ?? null,
+    /**
+     * Another API key for the same service, as its own provider: same type, address, model choices and priority, its own key
+     * name (BASE_KEY_2...). The router already moves on to the next provider when one key runs out of quota or is rate limited,
+     * so extra keys need no special case there.
+     */
+    addKey(baseId, id, keyEnv) {
+      const base = entries.get(baseId)
+      if (!base || base.extraOf || !base.keyEnv || base.type === 'unverified') throw new ProviderError('unconfigured', `"${baseId}" does not take extra keys`)
+      build({ ...base.cfg, id, label: `${base.label} (chave ${id.split('-').pop()})`, apiKeyEnv: keyEnv, configWarning: undefined, enabled: true }, baseId)
+      const p = entries.get(id)
+      Object.assign(p, { priority: base.priority, defaultModel: base.defaultModel, allowedModels: [...base.allowedModels], paid: base.paid, tier: base.tier, allowSensitive: base.allowSensitive })
+      return p
+    },
+    /** Only providers added with addKey can go. */
+    removeKey(id) {
+      const p = entries.get(id)
+      if (!p?.extraOf) return false
+      entries.delete(id)
+      return true
+    },
     /** Runtime overrides from the owner's settings: on/off, model, priority. */
     update(id, { enabled, model, priority, free, allowedModels }) {
       const p = entries.get(id)

@@ -31,6 +31,7 @@ Princípios que não negocio:
 - Trocar de IA sozinho quando uma falha, fica sem cota, sem crédito ou com chave inválida (antes do primeiro token; nunca emendo a frase de um modelo na de outro).
 - Pedido "sensível" nunca sai do computador. Provedor pago só com "autorizo gasto".
 - Marcar uma IA externa como **Grátis** (tela IAs) para usá-la sem "autorizo gasto", e dar a ela uma **lista de modelos permitidos** (ex.: só os `:free` do OpenRouter): só esses são usados, na ordem, e se a cota de um acabar passo para o próximo modelo antes de trocar de provedor. Não adivinho o preço de um modelo: "grátis" é o Erick quem declara.
+- Ter **várias chaves do mesmo serviço** (ex.: duas do Gemini, três do OpenRouter): "+ Outra chave" na tela IAs cria uma entrada com chave própria, copiando o modelo e a lista da primeira (até 5 extras). Quando a cota de uma chave acaba, uso a próxima. Cada chave é guardada cifrada e só vai para o serviço dela.
 - Preferir modelo barato (`cheap`) ou forte (`strong`) conforme a tarefa; registrar latência, taxa de sucesso, tokens e gasto estimado por provedor.
 - Streaming token a token; uma porta compatível com OpenAI (`/v1`) para o agente de código do Erick usar o mesmo roteador.
 - "Ainda não": function calling nativo dos provedores (uso um protocolo de JSON em texto), orçamento em dinheiro com bloqueio automático (hoje: limite de tokens e tempo por tarefa).

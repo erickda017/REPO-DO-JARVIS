@@ -114,6 +114,14 @@ export function createApi({ openai, health, router, services, projects, tasks, t
       await settings.setProvider(String(b.id ?? ''), { enabled: b.enabled, model: b.model, priority: b.priority, free: b.free, allowedModels: b.allowedModels })
       return health.snapshot()
     },
+    'POST providers/addkey': async (b) => {
+      await settings.addKey(String(b.base ?? ''))
+      return health.snapshot()
+    },
+    'POST providers/removekey': async (b) => {
+      await settings.removeKey(String(b.id ?? ''))
+      return health.snapshot()
+    },
     // Desktop agent
     'POST agent/run': async (b) => ({ jobId: agent.run({ text: b.text, history: Array.isArray(b.history) ? b.history : [], sensitive: b.sensitive === true, confirmSpend: b.confirm === true }) }),
     'GET agent/job': async (q) => agent.view(String(q.id ?? '')) ?? Promise.reject(new HttpError(404, 'unknown job')),

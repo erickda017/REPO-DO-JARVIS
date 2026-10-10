@@ -17,6 +17,7 @@ export interface ProviderView {
   priority: number
   model: string | null
   allowedModels: string[]
+  extraOf: string | null
   capabilities: string[]
   status: null | { endpoint: Check; auth: Check; model: Check; inference: Check; checkedAt: string; models?: string[] | null }
   recentErrors: { kind: string; message: string; at: string }[]
@@ -148,7 +149,9 @@ export const api = {
   keys: () => call<KeyStatus[]>('GET', 'keys'),
   setKey: (name: string, value: string) => call<KeyStatus[]>('POST', 'keys', { name, value }),
   clearKey: (name: string) => call<KeyStatus[]>('POST', 'keys/clear', { name }),
-  providerUpdate: (id: string, patch: { enabled?: boolean; model?: string; priority?: number; free?: boolean; allowedModels?: string[] }) => call<ProviderView[]>('POST', 'providers/update', { id, ...patch }),
+  addKeyProvider: (base: string) => call<ProviderView[]>('POST', 'providers/addkey', { base }),
+  removeKeyProvider: (id: string) => call<ProviderView[]>('POST', 'providers/removekey', { id }),
+  providerUpdate:(id: string, patch: { enabled?: boolean; model?: string; priority?: number; free?: boolean; allowedModels?: string[] }) => call<ProviderView[]>('POST', 'providers/update', { id, ...patch }),
   voice: () => call<VoiceStatus>('GET', 'voice'),
   voiceSet: (apiKey?: string, voiceId?: string) => call<VoiceStatus>('POST', 'voice', { apiKey, voiceId }),
   voiceTest: () => call<VoiceTest>('POST', 'voice/test'),
