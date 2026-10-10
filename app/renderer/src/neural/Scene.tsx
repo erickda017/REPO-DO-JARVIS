@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useMemo, useRef } from 'react'
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { Canvas, useFrame } from '@react-three/fiber'
 import { Html, OrbitControls } from '@react-three/drei'
 import { Bloom, EffectComposer } from '@react-three/postprocessing'
@@ -268,6 +268,9 @@ function EntityMesh({ node, flash, onPick }: { node: EntityNode; flash: React.Re
   const mat = useRef<THREE.MeshBasicMaterial>(null)
   const ring = useRef<THREE.Mesh>(null)
   const r = RADIUS[node.kind]
+  // Fixed labels only for the core, AIs and services; everything else (projects, tasks, timer...) names itself on hover, so labels never pile up.
+  const [hover, setHover] = useState(false)
+  const showLabel = hover || node.kind === 'core' || node.kind === 'ai' || node.kind === 'service'
   const base = useMemo(() => new THREE.Color(TONE_COLOR[node.tone]), [node.tone])
   useFrame((_, dt) => {
     const f = flash.current.get(node.id) ?? 0
@@ -277,7 +280,7 @@ function EntityMesh({ node, flash, onPick }: { node: EntityNode; flash: React.Re
   })
   return (
     <group position={[node.pos.x, node.pos.y, node.pos.z]}>
-      <mesh ref={mesh} onClick={(e) => (e.stopPropagation(), onPick(node))} onPointerOver={() => (document.body.style.cursor = 'pointer')} onPointerOut={() => (document.body.style.cursor = '')}>
+      <mesh ref={mesh} onClick={(e) => (e.stopPropagation(), onPick(node))} onPointerOver={() => (document.body.style.cursor = 'pointer', setHover(true))} onPointerOut={() => (document.body.style.cursor = '', setHover(false))}>
         <sphereGeometry args={[r, 20, 16]} />
         <meshBasicMaterial ref={mat} toneMapped={false} />
       </mesh>
@@ -293,11 +296,13 @@ function EntityMesh({ node, flash, onPick }: { node: EntityNode; flash: React.Re
           </mesh>
         </>
       )}
-      <Html center position={[0, -(r + 0.3), 0]} style={{ pointerEvents: 'none' }} zIndexRange={[10, 0]}>
-        <div className="node-label" data-tone={node.tone}>
-          <span>{node.label}</span>
-        </div>
-      </Html>
+      {showLabel && (
+        <Html center position={[0, -(r + 0.3), 0]} style={{ pointerEvents: 'none' }} zIndexRange={[10, 0]}>
+          <div className="node-label" data-tone={node.tone}>
+            <span>{node.label}</span>
+          </div>
+        </Html>
+      )}
     </group>
   )
 }

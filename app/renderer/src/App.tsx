@@ -1,4 +1,4 @@
-import { useEffect } from 'react'
+import { useEffect, useState } from 'react'
 import { Activity, Bot, Cpu, FolderGit2, Power, MessageSquare, Mic, Network, PanelLeftClose, PanelLeftOpen, Terminal } from 'lucide-react'
 import { useApp, type View } from './store.ts'
 import { NeuralScene } from './neural/Scene.tsx'
@@ -54,7 +54,10 @@ function Home() {
 }
 
 export function App() {
-  const { view, setView, bridgeOk, refresh, pollAudit, probe, loadProjects, collapsed, toggleSidebar } = useApp()
+  const { view, setView, bridgeOk, bridgeErr, refresh, pollAudit, probe, loadProjects, collapsed, toggleSidebar } = useApp()
+  // The terminal keeps its session on screen: once opened it stays mounted (hidden) when you switch views.
+  const [codeOpened, setCodeOpened] = useState(false)
+  useEffect(() => { if (view === 'code') setCodeOpened(true) }, [view])
   useEffect(() => {
     void refresh().then(probe)
     void pollAudit()
@@ -77,7 +80,7 @@ export function App() {
         </div>
         <div className="topbar-right">
           <Stats />
-          <div className="conn" data-ok={bridgeOk}><span className="dot" data-tone={bridgeOk ? 'ok' : 'bad'} aria-hidden />{bridgeOk ? 'Bridge conectado' : 'Bridge desconectado'}</div>
+          <div className="conn" data-ok={bridgeOk}><span className="dot" data-tone={bridgeOk ? 'ok' : 'bad'} aria-hidden />{bridgeOk ? 'Bridge conectado' : bridgeErr ? 'Bridge recusou' : 'Bridge desconectado'}</div>
         </div>
       </header>
       <nav className="sidebar" aria-label="Navegação">
@@ -90,14 +93,14 @@ export function App() {
       <main className="main">
         {view === 'home' && <Home />}
         {view === 'chat' && <ChatView />}
-        {view === 'code' && <CodeView />}
+        {codeOpened && <div className="keep" hidden={view !== 'code'}><CodeView /></div>}
         {view === 'projects' && <ProjectsView />}
         {view === 'agent' && <AgentView />}
         {view === 'ia' && <IaView />}
         {view === 'ais' && <AisView />}
         {view === 'system' && <SystemView />}
         {view === 'voice' && <VoiceView />}
-        {!bridgeOk && view !== 'home' && <p className="banner" role="status">Bridge desconectado — os dados abaixo podem estar desatualizados.</p>}
+        {!bridgeOk && view !== 'home' && <p className="banner" role="status">{bridgeErr ?? 'Bridge desconectado'} — os dados abaixo podem estar desatualizados.</p>}
       </main>
     </div>
   )

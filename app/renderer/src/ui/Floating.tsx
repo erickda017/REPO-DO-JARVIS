@@ -126,6 +126,7 @@ function JobCard() {
   const job = useApp((s) => s.job)
   const confirmJob = useApp((s) => s.confirmJob)
   const dismiss = useApp((s) => s.dismissJob)
+  const cancel = useApp((s) => s.cancelJob)
   if (!job) return null
   const res = job.result
   const label = res ? { concluido: 'Concluído', parcial: 'Parcial', nao_concluido: 'Não concluído', pergunta: 'Pergunta' }[res.status] : job.status === 'awaiting' ? 'Aguardando você' : 'Trabalhando…'
@@ -150,6 +151,7 @@ function JobCard() {
           <div className="actions"><button className="btn primary" onClick={() => void confirmJob(true)}>Autorizar</button><button className="btn" onClick={() => void confirmJob(false)}>Negar</button></div>
         </div>
       )}
+      {!res && <div className="actions"><button className="btn" onClick={() => void cancel()}>Parar</button></div>}
       {res?.audit && <p className="dim small">Auditoria independente: {res.audit.verdict} — {res.audit.reason}</p>}
       {res && res.notes.length > 0 && <ul className="notes">{res.notes.map((n, i) => <li key={i} className="small">{n}</li>)}</ul>}
     </motion.section>

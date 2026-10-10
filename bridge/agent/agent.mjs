@@ -95,7 +95,7 @@ ${off ? `Ferramentas desativadas (o usuário precisa ligá-las na tela Agente): 
  * enforces permissions and confirmations, tools verify their own results, and the final status is computed from
  * evidence. All model calls go through the same router as everything else (local first, quota failover included).
  */
-export function createAgent({ router, tools, access, audit, clock = Date.now, maxSteps = 10, confirmTimeoutMs = 5 * 60_000 }) {
+export function createAgent({ router, tools, access, audit, clock = Date.now, maxSteps = 10, confirmTimeoutMs = 5 * 60_000, jobDeadlineMs = 15 * 60_000 }) {
   const jobs = new Map()
 
   const catalogFor = (job) => {
@@ -122,7 +122,9 @@ export function createAgent({ router, tools, access, audit, clock = Date.now, ma
     let finalText = null
     let question = null
 
+    const stopped = () => (job.cancelled ? 'Cancelado pelo usuário.' : clock() - job.startedAt > jobDeadlineMs ? 'O pedido passou do tempo máximo e foi encerrado.' : null)
     for (let n = 0; n < maxSteps; n++) {
+      if ((job.error = stopped())) break
       let reply
       try {
         reply = await ask(messages, system, job)
@@ -130,6 +132,8 @@ export function createAgent({ router, tools, access, audit, clock = Date.now, ma
         job.error = String(e?.message ?? e).slice(0, 300)
         break
       }
+      // A model call can take a minute; the Stop button / the deadline apply as soon as it returns, before any tool runs.
+      if ((job.error = stopped())) break
       job.provider = reply.provider
       const act = parseAction(reply.text)
       if (act.action === 'final') {
@@ -221,7 +225,7 @@ export function createAgent({ router, tools, access, audit, clock = Date.now, ma
       evidence: job.steps.filter((s) => s.risk !== 'read' && s.ok).map((s) => ({ tool: s.tool, verified: s.verified ?? null, evidence: s.evidence })),
     }
     // Independent check, fresh context: only when something was changed. Advisory; the status above is already evidence-based.
-    if (job.result.evidence.length && job.audit !== false) {
+    if (job.result.evidence.length && job.audit !== false && !job.cancelled) {
       try {
         const a = await router.run({
           capability: 'chat', sensitive: job.sensitive, confirmSpend: job.confirmSpend, maxTokens: 220,
@@ -256,6 +260,14 @@ export function createAgent({ router, tools, access, audit, clock = Date.now, ma
       const j = jobs.get(id)
       if (!j) return null
       return { id: j.id, status: j.status, steps: j.steps, pending: j.pending ? { id: j.pending.id, tool: j.pending.tool, message: j.pending.message } : null, result: j.result, provider: j.provider ?? null }
+    },
+    /** Stop button: nothing further runs; a pending confirmation is answered "no". An action already running finishes. */
+    cancel(id) {
+      const j = jobs.get(id)
+      if (!j || j.status === 'done') return false
+      j.cancelled = true
+      j.pending?.resolve(false)
+      return true
     },
     confirm(id, approve) {
       for (const j of jobs.values()) {

@@ -23,6 +23,8 @@ interface State {
   view: View
   overview: Overview | null
   bridgeOk: boolean
+  /** Set when the bridge answered but refused (token/origin/500), so the UI does not call it 'disconnected'. */
+  bridgeErr: string | null
   voice: VoiceStatus | null
   messages: Message[]
   busy: boolean
@@ -36,6 +38,7 @@ interface State {
   job: AgentJob | null
   dismissJob: () => void
   confirmJob: (approve: boolean) => Promise<void>
+  cancelJob: () => Promise<void>
   collapsed: boolean
   toggleSidebar: () => void
   projects: ProjectGraph[]
@@ -98,6 +101,7 @@ export const useApp = create<State>((set, get) => ({
   view: 'home',
   overview: null,
   bridgeOk: false,
+  bridgeErr: null,
   voice: null,
   messages: [],
   busy: false,
@@ -113,6 +117,10 @@ export const useApp = create<State>((set, get) => ({
   confirmJob: async (approve) => {
     const p = get().job?.pending
     if (p) await api.agentConfirm(p.id, approve).catch((e) => get().addCard('Não consegui enviar sua resposta', { type: 'text', text: String(e?.message ?? e) }))
+  },
+  cancelJob: async () => {
+    const j = get().job
+    if (j) await api.agentCancel(j.id).catch((e) => get().addCard('Não consegui parar o agente', { type: 'text', text: String(e?.message ?? e) }))
   },
   collapsed: (() => { try { return localStorage.getItem('jarvis.sidebar') === 'collapsed' } catch { return false } })(),
   toggleSidebar: () =>
@@ -158,7 +166,7 @@ export const useApp = create<State>((set, get) => ({
     refreshing = true
     try {
       const [overview, voice] = await Promise.all([api.overview(), api.voice().catch(() => null)])
-      set({ overview, voice, bridgeOk: true })
+      set({ overview, voice, bridgeOk: true, bridgeErr: null })
       void api.alerts().then((list) => {
         for (const a of list) {
           if (seenAlerts.has(a.id + a.at)) continue
@@ -166,8 +174,8 @@ export const useApp = create<State>((set, get) => ({
           get().addCard(a.level === 'critical' ? 'Alerta: pouco espaço' : 'Aviso de armazenamento', { type: 'text', text: a.text, meta: new Date(a.at).toLocaleTimeString('pt-BR') })
         }
       }).catch(() => {})
-    } catch {
-      set({ bridgeOk: false })
+    } catch (e) {
+      set({ bridgeOk: false, bridgeErr: e instanceof ApiError && e.status ? `Bridge recusou (HTTP ${e.status}): ${e.message}` : null })
     } finally {
       refreshing = false
     }

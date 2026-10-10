@@ -5,7 +5,7 @@ import { readFileSync } from 'node:fs'
 import { scanProject, type ProjectGraph } from './projects.ts'
 import { watchSession } from './transcripts.ts'
 import { iaStart, iaStatus, iaStop, iaValid, type IaMode } from './ia.ts'
-import { spawn, type ChildProcess } from 'node:child_process'
+import { execFile, spawn, type ChildProcess } from 'node:child_process'
 import { randomBytes } from 'node:crypto'
 import { appendFileSync, copyFileSync, createReadStream, existsSync, mkdirSync, realpathSync, statSync, writeFileSync } from 'node:fs'
 import http from 'node:http'
@@ -26,6 +26,7 @@ const MIME: Record<string, string> = {
 // Per-launch secret shared only with the bridge this app starts and with its own page (through the preload).
 const APP_TOKEN = randomBytes(24).toString('hex')
 let bridge: ChildProcess | null = null
+let quitting = false
 let ui: http.Server | null = null
 
 const portBusy = (port: number) =>
@@ -50,15 +51,41 @@ function userPaths(): Record<string, string> {
   return { JARVIS_COMMAND_CONFIG: config, JARVIS_DATA_DIR: join(dir, 'data') }
 }
 
-/** Start the bridge as a child unless one is already listening (e.g. started by hand). */
-async function startBridge() {
-  if (await portBusy(BRIDGE_PORT)) return
+/** A bridge left over from an earlier run answers 401 to our new token and would block the app forever: stop exactly that process. */
+async function clearOrphanBridge() {
+  const r = await fetch(`http://127.0.0.1:${BRIDGE_PORT}/api/command/overview`, { headers: { 'x-jarvis-token': APP_TOKEN }, signal: AbortSignal.timeout(2500) }).catch(() => null)
+  if (!r || r.status !== 401) return // not ours to touch: a hand-started bridge without a token answers 200
+  const ps = `Get-NetTCPConnection -LocalPort ${BRIDGE_PORT} -State Listen -ErrorAction SilentlyContinue | ForEach-Object { $p = Get-CimInstance Win32_Process -Filter ('ProcessId=' + $_.OwningProcess); if ($p.CommandLine -match 'server\.mjs') { Stop-Process -Id $p.ProcessId -Force } }`
+  await new Promise<void>((done) => execFile('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', ps], { windowsHide: true, timeout: 15000 }, () => done()))
+  await new Promise((done) => setTimeout(done, 800))
+}
+
+let restarts: number[] = []
+const launchBridge = () => {
   bridge = spawn(process.execPath, [join(ROOT, 'bridge', 'server.mjs')], {
     cwd: ROOT,
     env: { ...process.env, ...userPaths(), ELECTRON_RUN_AS_NODE: '1', JARVIS_APP_TOKEN: APP_TOKEN },
     stdio: 'ignore',
     windowsHide: true,
   })
+  const me = bridge
+  me.on('error', () => {})
+  // Supervisor: if the bridge dies while the app is open, bring it back (at most 5 times a minute, so a crash loop cannot spin).
+  me.on('exit', () => {
+    if (quitting || bridge !== me) return
+    const now = Date.now()
+    restarts = restarts.filter((t) => now - t < 60_000)
+    if (restarts.length >= 5) return
+    restarts.push(now)
+    setTimeout(launchBridge, 1000)
+  })
+}
+
+/** Start the bridge as a child unless one is already listening (e.g. started by hand). */
+async function startBridge() {
+  if (await portBusy(BRIDGE_PORT)) await clearOrphanBridge()
+  if (await portBusy(BRIDGE_PORT)) return
+  launchBridge()
 }
 
 /** Serve the built renderer from loopback so its origin is one the bridge allows. */
@@ -261,6 +288,7 @@ else {
   })
   app.on('window-all-closed', () => app.quit())
   app.on('will-quit', () => {
+    quitting = true
     setTimeout(() => app.exit(0), 3000).unref() // never let a child that will not die keep the app open
     stopTerm()
     bridge?.kill()

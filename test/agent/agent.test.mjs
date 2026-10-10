@@ -299,3 +299,29 @@ test('after reading a file, a web call needs a confirmation (hidden-instruction 
   agent.confirm(pending.id, false)
   await done(agent, id)
 })
+
+test('cancel: the Stop button ends the job before the next tool runs and never reports a success', async () => {
+  const { tools, access } = await setup()
+  let release
+  const router = { run: () => new Promise((r) => (release = () => r({ text: '{"action":"tool","tool":"fs_list","args":{"path":"%DESKTOP%"}}', provider: 'fake', model: 'm', latencyMs: 1 }))) }
+  const agent = createAgent({ router, tools, access })
+  const id = agent.run({ text: 'liste a área de trabalho', audit: false })
+  await waitFor(() => release)
+  assert.equal(agent.cancel(id), true)
+  release()
+  const v = await done(agent, id)
+  assert.equal(v.steps.length, 0, 'no tool ran after the stop')
+  assert.equal(v.result.status, 'nao_concluido')
+  assert.match(v.result.text, /Cancelado/)
+  assert.equal(agent.cancel(id), false, 'cancelling a finished job is a no-op')
+})
+
+test('deadline: a job past its time budget stops instead of running forever', async () => {
+  const { tools, access } = await setup()
+  let now = 0
+  const router = { run: async () => ((now += 20 * 60_000), { text: '{"action":"tool","tool":"fs_list","args":{"path":"%DESKTOP%"}}', provider: 'fake', model: 'm', latencyMs: 1 }) }
+  const agent = createAgent({ router, tools, access, clock: () => now, jobDeadlineMs: 15 * 60_000 })
+  const id = agent.run({ text: 'liste a área de trabalho', audit: false })
+  const v = await done(agent, id)
+  assert.match(v.result.text, /tempo máximo/)
+})

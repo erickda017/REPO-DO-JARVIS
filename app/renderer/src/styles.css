@@ -382,3 +382,6 @@ input, select { border-radius: var(--r-sm); }
 /* long paths/URLs must wrap instead of overflowing */
 .msg-text, .card-text, .row-panel h2, .caption { overflow-wrap: anywhere; }
 .caption-wrap { max-height: 38vh; overflow: auto; }
+
+.keep { display: contents; }
+.keep[hidden] { display: none; }

@@ -61,7 +61,10 @@ export interface MonitorView {
 export interface AgentAlert { id: string; level: 'warning' | 'critical'; at: number; text: string }
 export interface ToolRun { ok: boolean; error?: string; data?: any; verified?: boolean | null; evidence?: string }
 
-export class ApiError extends Error {}
+export class ApiError extends Error {
+  /** HTTP status when the bridge answered (401 token, 403 origin, 5xx...); undefined when it could not be reached. */
+  constructor(message: string, public status?: number) { super(message) }
+}
 
 async function call<T>(method: 'GET' | 'POST', path: string, body?: unknown): Promise<T> {
   let res: Response
@@ -76,7 +79,7 @@ async function call<T>(method: 'GET' | 'POST', path: string, body?: unknown): Pr
     throw new ApiError('Bridge inacessível. Ele está rodando em ' + BASE + '?')
   }
   const json = (await res.json().catch(() => ({}))) as { error?: string; message?: string }
-  if (!res.ok) throw new ApiError(json.error ?? json.message ?? `HTTP ${res.status}`)
+  if (!res.ok) throw new ApiError(json.error ?? json.message ?? `HTTP ${res.status}`, res.status)
   return json as T
 }
 
@@ -92,6 +95,7 @@ export const api = {
   timer: (action: 'start' | 'pause' | 'resume' | 'cancel', seconds?: number, label?: string) => call<TimerView>('POST', `timer/${action}`, action === 'start' ? { seconds, label } : {}),
   agentRun: (text: string, history: ChatTurn[], sensitive: boolean, confirm: boolean) => call<{ jobId: string }>('POST', 'agent/run', { text, history, sensitive, confirm }),
   agentJob: (id: string) => call<AgentJob>('GET', `agent/job?id=${encodeURIComponent(id)}`),
+  agentCancel: (id: string) => call<{ ok: boolean }>('POST', 'agent/cancel', { id }),
   agentConfirm: (id: string, approve: boolean) => call<{ ok: boolean }>('POST', 'agent/confirm', { id, approve }),
   agentAccess: () => call<AgentAccess>('GET', 'agent/access'),
   agentAccessSet: (body: { tool?: string; on?: boolean; addRoot?: string; label?: string; removeRoot?: string }) => call<AgentAccess>('POST', 'agent/access', body),
