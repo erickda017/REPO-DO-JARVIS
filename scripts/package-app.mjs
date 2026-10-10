@@ -1,5 +1,5 @@
 import { execSync } from 'node:child_process'
-import { cpSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { cpSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { build, Platform } from 'electron-builder'
 
 // Builds the Windows installer: release/out/JARVIS-Setup-<version>.exe
@@ -40,7 +40,9 @@ writeFileSync(`${stage}/package.json`, JSON.stringify({
 }, null, 2))
 sh('npm install --omit=dev --ignore-scripts --no-audit --no-fund', stage)
 
-await build({
+let buildError = null
+try {
+  await build({
   projectDir: root,
   targets: Platform.WINDOWS.createTarget((process.env.JARVIS_TARGETS ?? 'msi,portable').split(',')),
   publish: 'never',
@@ -54,7 +56,8 @@ await build({
     asar: false, // the bridge runs as a separate Node process and the Agent SDK ships a native binary
     npmRebuild: false,
     directories: { app: stage, output: 'release/out', buildResources: 'build' },
-    win: { icon: 'build/icon.ico' },
+    // Signed only when a certificate is given (JARVIS_SIGN_SHA1 or JARVIS_SIGN_PFX): see scripts/sign-win.cjs.
+    win: { icon: 'build/icon.ico', ...(process.env.JARVIS_SIGN_SHA1 || process.env.JARVIS_SIGN_PFX ? { signtoolOptions: { sign: 'scripts/sign-win.cjs' }, signExts: ['.msi'] } : {}) },
     // MSI is the update-friendly format: Windows Installer upgrades a previous version in place (same upgradeCode),
     // keeping the install folder, and reports real exit codes. NSIS 3.0.4.1 crashed at exit on this PC.
     msi: { oneClick: false, perMachine: false, upgradeCode: '8c0d2a1e-5b7f-4c3a-9e61-2f4d7b9a1c55', createDesktopShortcut: true, createStartMenuShortcut: true, runAfterFinish: false },
@@ -74,5 +77,19 @@ await build({
       artifactName: 'JARVIS-Setup-${version}.exe',
     },
   },
-})
+  })
+} catch (e) {
+  buildError = e
+}
+
+// The MSI step of electron-builder ends with a WiX clean-up error on this PC after the .msi is complete (see CONTEXTO.md),
+// which skips its own signing step: sign the finished MSI here, and only tolerate that known error.
+const msi = readdirSync('release/out').find((n) => n.endsWith('.msi'))
+if (msi && (process.env.JARVIS_SIGN_SHA1 || process.env.JARVIS_SIGN_PFX)) {
+  const { createRequire } = await import('node:module')
+  await createRequire(import.meta.url)('./sign-win.cjs').default({ path: `release/out/${msi}` })
+  console.log(`[app] signed ${msi}`)
+}
+if (buildError && !(msi && /light\.exe/.test(String(buildError)))) throw buildError
+if (buildError) console.warn('[app] WiX clean-up error ignored: the .msi is complete')
 console.log('[app] installer ready in release/out')
