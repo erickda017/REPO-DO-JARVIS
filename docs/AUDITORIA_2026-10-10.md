@@ -89,3 +89,19 @@ Não passou nenhuma falha que perdesse dados. Mas passaram **4 problemas sérios
 - Testes: `npm run test:command`, `npm run test:agent`, `npm run test:app`; tipos: `npx tsc -p app/tsconfig.json --noEmit`.
 - Capturas: `.impeccable/audit/v1..v9.png` (antes das correções) e `chat-fixed.png`.
 - Cenário de injeção real: arquivo com instrução escondida numa pasta liberada + pergunta "leia o arquivo e diga o total" (ver seção 1, item 2).
+
+## 7. Pendências tratadas depois do relatório (mesma noite, commits locais)
+
+| Item da seção 4 | Resultado |
+|---|---|
+| Rotas `/tts`, `/stt`, `/file`, `/img`, `/media`, `/page` sem token | **Corrigido**: com o app, toda rota exige o token por execução (exceto `/health` e a porta `/v1`, que tem o token dela). O app passou a enviar o token no `/tts`. |
+| Chaves em texto puro | **Corrigido**: `data/settings.json` e `data/voice.json` guardam as chaves cifradas com **DPAPI do Windows** (só este usuário, neste PC). Arquivo antigo em texto puro é migrado sozinho na primeira leitura; testado com DPAPI real. Observação: copiar `data/` para outro PC/usuário não abre as chaves (é o objetivo). |
+| Rótulos sobrepostos na rede neural | **Corrigido**: núcleo, IAs e serviços ficam com rótulo fixo; projetos, tarefas e timer só no hover. |
+| "NOVA IA DO UMBRA" no rótulo da config | Renomeado para "IA local" no `command.config.json` local. |
+| Sem prazo total/cancelamento | **Corrigido (parcial)**: botão **Parar** no painel do agente, prazo de 15 min por tarefa e orçamento de 4 min na cadeia de failover do roteador. Streaming real de tokens segue pendente (decisão: outra rodada). |
+| 401/403/500 como "Bridge desconectado" | **Corrigido**: o aviso mostra "Bridge recusou (HTTP …)" quando o bridge respondeu. |
+| App não supervisiona o bridge / bridge órfão | **Corrigido**: reinicia o bridge se cair (máx. 5 por minuto) e encerra um bridge órfão de execução anterior (só o processo `server.mjs` dono da porta, e só quando ele recusa o token novo). Não testado com crash real. |
+| Terminal destruído ao trocar de tela | **Corrigido**: depois de aberto, fica montado e escondido. Não testado com sessão real de Claude Code. |
+| Janela 800×600 | **Não se aplica**: o tamanho mínimo da janela é 1100×700. |
+| Atalho "Agente de Codigo" no .exe antigo | Atalho agora roda `node agente.js` (cópia do atalho antigo em `ia-local/_backup/`). |
+| Mantidas | Modelo local 4B lento/impreciso; `run_command` com lista contornável (a confirmação é a defesa); assinatura digital; chave da Jev a trocar; failover com serviço real. |
