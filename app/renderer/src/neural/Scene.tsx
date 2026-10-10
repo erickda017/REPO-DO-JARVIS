@@ -5,12 +5,103 @@ import { Bloom, EffectComposer } from '@react-three/postprocessing'
 import * as THREE from 'three'
 import { useApp } from '../store.ts'
 import { Activity, buildCloud, layoutEntities, mulberry32, nearestNeurons, TONE_COLOR, type EntityNode } from './graph.ts'
+import { EXT_COLOR, findNode, layoutProject, projectCenter } from './projectGraph.ts'
+import type { ProjectGraph } from '../../../electron/projects.ts'
 
 const reduced = () => typeof matchMedia === 'function' && matchMedia('(prefers-reduced-motion: reduce)').matches
 const BASE = new THREE.Color(0.025, 0.11, 0.16)
 const HOT = new THREE.Color(0.5, 0.95, 1.0)
 
 const RADIUS: Record<string, number> = { core: 0.42, ai: 0.27, service: 0.19, project: 0.21, tasks: 0.19, timer: 0.19, voice: 0.19 }
+
+/** One granted project folder as its own satellite network: dirs, files, imports. Agent file touches light nodes up. */
+function ProjectCloud({ g, index, total }: { g: ProjectGraph; index: number; total: number }) {
+  const { positions } = useMemo(() => layoutProject(g), [g])
+  const c = useMemo(() => projectCenter(index, total), [index, total])
+  const n = g.nodes.length
+  const inst = useRef<THREE.InstancedMesh>(null)
+  const flash = useRef(new Float32Array(n))
+  const lastTouch = useRef(0)
+  const col = useMemo(() => new THREE.Color(), [])
+  const base = useMemo(() => g.nodes.map((nd) => new THREE.Color(nd.kind === 'key' ? '#fff1b8' : nd.kind === 'dir' ? '#2d7fa3' : (EXT_COLOR[nd.ext] ?? '#6f8c9b')).multiplyScalar(nd.kind === 'dir' ? 0.8 : 0.95)), [g])
+  const lineGeo = useMemo(() => {
+    const pos = new Float32Array(g.edges.length * 6)
+    g.edges.forEach(([a, b], k) => pos.set([positions[a * 3], positions[a * 3 + 1], positions[a * 3 + 2], positions[b * 3], positions[b * 3 + 1], positions[b * 3 + 2]], k * 6))
+    const geo = new THREE.BufferGeometry()
+    geo.setAttribute('position', new THREE.BufferAttribute(pos, 3))
+    geo.setAttribute('color', new THREE.BufferAttribute(new Float32Array(g.edges.length * 6), 3))
+    return geo
+  }, [g, positions])
+  useLayoutEffect(() => {
+    const m = inst.current
+    if (!m) return
+    const d = new THREE.Object3D()
+    g.nodes.forEach((nd, i) => {
+      d.position.set(positions[i * 3], positions[i * 3 + 1], positions[i * 3 + 2])
+      d.scale.setScalar(nd.kind === 'key' ? 2.2 : nd.kind === 'dir' ? 1.5 : 0.8 + Math.min(Math.log10(nd.size + 10) * 0.22, 1))
+      d.updateMatrix()
+      m.setMatrixAt(i, d.matrix)
+      m.setColorAt(i, base[i])
+    })
+    m.instanceMatrix.needsUpdate = true
+  }, [g, positions, base])
+  useFrame((_, dt) => {
+    for (const t of useApp.getState().touches) {
+      if (t.id <= lastTouch.current) continue
+      lastTouch.current = t.id
+      const i = findNode(g, t.path)
+      if (i >= 0) flash.current[i] = 1
+    }
+    const f = flash.current
+    for (let i = 0; i < n; i++) f[i] = Math.max(0, f[i] - dt * 0.7)
+    const m = inst.current
+    if (m) {
+      for (let i = 0; i < n; i++) m.setColorAt(i, col.copy(base[i]).lerp(HOT, Math.min(f[i], 1)).multiplyScalar(1 + f[i] * 2.5))
+      if (m.instanceColor) m.instanceColor.needsUpdate = true
+    }
+    const cc = lineGeo.getAttribute('color') as THREE.BufferAttribute
+    g.edges.forEach(([a, b, kind], k) => {
+      const v = Math.max(f[a], f[b])
+      if (kind === 'tree') col.setRGB(0.05, 0.2, 0.28)
+      else col.setRGB(0.18, 0.62, 0.72)
+      col.multiplyScalar(1 + v * 3)
+      cc.setXYZ(k * 2, col.r, col.g, col.b)
+      cc.setXYZ(k * 2 + 1, col.r, col.g, col.b)
+    })
+    cc.needsUpdate = true
+  })
+  return (
+    <group position={[c.x, c.y, c.z]}>
+      <instancedMesh ref={inst} args={[undefined, undefined, n]}>
+        <sphereGeometry args={[0.05, 8, 6]} />
+        <meshBasicMaterial toneMapped={false} />
+      </instancedMesh>
+      <lineSegments geometry={lineGeo}>
+        <lineBasicMaterial vertexColors toneMapped={false} transparent opacity={0.9} />
+      </lineSegments>
+      <Html center position={[0, 2.7, 0]} style={{ pointerEvents: 'none' }} zIndexRange={[10, 0]}>
+        <div className="node-label"><span>{g.name.toUpperCase()}</span><small>{g.git?.branch ? ` · ${g.git.branch}` : ''}{` · ${n} itens`}{g.truncated ? '+' : ''}</small></div>
+      </Html>
+    </group>
+  )
+}
+
+function Projects() {
+  const projects = useApp((s) => s.projects)
+  const links = useMemo(() => {
+    const pts: number[] = []
+    projects.forEach((_, i) => { const c = projectCenter(i, projects.length); pts.push(0, 0, 0, c.x, c.y, c.z) })
+    const geo = new THREE.BufferGeometry()
+    geo.setAttribute('position', new THREE.Float32BufferAttribute(pts, 3))
+    return geo
+  }, [projects])
+  return (
+    <>
+      <lineSegments geometry={links}><lineBasicMaterial color={[0.05, 0.3, 0.4]} toneMapped={false} transparent opacity={0.6} /></lineSegments>
+      {projects.map((g, i) => <ProjectCloud key={g.root} g={g} index={i} total={projects.length} />)}
+    </>
+  )
+}
 
 function World() {
   const overview = useApp((s) => s.overview)
@@ -144,7 +235,9 @@ function World() {
   }
 
   return (
-    <group ref={group}>
+    <>
+    <Projects />
+    <group ref={group} scale={0.78}>
       <instancedMesh ref={inst} args={[undefined, undefined, cloud.points.length]}>
         <sphereGeometry args={[0.045, 8, 6]} />
         <meshBasicMaterial toneMapped={false} />
@@ -166,6 +259,7 @@ function World() {
         </mesh>
       ))}
     </group>
+    </>
   )
 }
 
@@ -211,10 +305,10 @@ function EntityMesh({ node, flash, onPick }: { node: EntityNode; flash: React.Re
 export function NeuralScene() {
   useEffect(() => () => void (document.body.style.cursor = ''), [])
   return (
-    <Canvas camera={{ position: [0, 0.6, 10.5], fov: 48 }} dpr={[1, 1.5]} gl={{ antialias: false, powerPreference: 'high-performance' }} aria-label="Rede neural: nós grandes são entidades reais, a nuvem é uma metáfora visual">
+    <Canvas camera={{ position: [0, 0.8, 15.5], fov: 48 }} dpr={[1, 1.5]} gl={{ antialias: false, powerPreference: 'high-performance' }} aria-label="Rede neural: nós grandes são entidades reais, a nuvem é uma metáfora visual">
       <color attach="background" args={['#02060a']} />
       <World />
-      <OrbitControls enablePan={false} enableDamping minDistance={6} maxDistance={15} maxPolarAngle={Math.PI * 0.72} minPolarAngle={Math.PI * 0.28} rotateSpeed={0.5} />
+      <OrbitControls enablePan={false} enableDamping minDistance={6} maxDistance={26} maxPolarAngle={Math.PI * 0.72} minPolarAngle={Math.PI * 0.28} rotateSpeed={0.5} />
       <EffectComposer>
         <Bloom intensity={0.85} luminanceThreshold={0.35} luminanceSmoothing={0.3} mipmapBlur />
       </EffectComposer>

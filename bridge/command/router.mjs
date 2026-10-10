@@ -19,6 +19,8 @@ import { ProviderError, RouteError } from './errors.mjs'
  */
 export function createRouter({ registry, health, audit, clock = Date.now, cooldownMs = 30_000 }) {
   const cooldown = new Map() // id -> until (ms)
+  // An empty account will not refill in a minute: keep it out of rotation for 10 min, so traffic flows to the next provider.
+  const coolFor = (e) => (e.kind === 'quota' ? 10 * 60_000 : cooldownMs)
 
   const eligible = (req) => {
     const out = []
@@ -80,7 +82,7 @@ export function createRouter({ registry, health, audit, clock = Date.now, cooldo
       } catch (err) {
         const e = err instanceof ProviderError ? err : new ProviderError('network', String(err?.message ?? err), { provider: p.id })
         health?.pushError(p.id, e)
-        if (e.retryable) cooldown.set(p.id, clock() + cooldownMs)
+        if (e.retryable) cooldown.set(p.id, clock() + coolFor(e))
         attempts.push({ provider: p.id, error: e.toJSON() })
         audit?.record('ai.infer', { provider: p.id, model, ok: false, kind: e.kind, promptChars: req.prompt.length })
         if (!e.retryable || !p.allowFallback) throw new RouteError(`${p.id} failed: ${e.message}`, attempts)
@@ -120,7 +122,7 @@ export function createRouter({ registry, health, audit, clock = Date.now, cooldo
       } catch (err) {
         const e = err instanceof ProviderError ? err : new ProviderError('network', String(err?.message ?? err), { provider: p.id })
         health?.pushError(p.id, e)
-        if (e.retryable) cooldown.set(p.id, clock() + cooldownMs)
+        if (e.retryable) cooldown.set(p.id, clock() + coolFor(e))
         attempts.push({ provider: p.id, error: e.toJSON() })
         audit?.record('ai.decide', { provider: p.id, model, ok: false, kind: e.kind })
         if (!e.retryable || !p.allowFallback) throw new RouteError(`${p.id} failed: ${e.message}`, attempts)

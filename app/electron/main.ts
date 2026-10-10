@@ -1,4 +1,9 @@
-import { app, BrowserWindow, Menu, shell } from 'electron'
+import { app, BrowserWindow, dialog, ipcMain, Menu, shell } from 'electron'
+import * as pty from '@lydell/node-pty'
+import { execFileSync } from 'node:child_process'
+import { readFileSync } from 'node:fs'
+import { scanProject, type ProjectGraph } from './projects.ts'
+import { watchSession } from './transcripts.ts'
 import { spawn, type ChildProcess } from 'node:child_process'
 import { appendFileSync, copyFileSync, createReadStream, existsSync, mkdirSync, statSync, writeFileSync } from 'node:fs'
 import http from 'node:http'
@@ -68,6 +73,83 @@ function startUi(): Promise<void> {
   })
 }
 
+// ---------------------------------------------------------------------------------------------
+// Granted project folders + the PROGRAMAR terminal. Both are reachable only through the preload's
+// fixed channels, and a terminal can only start inside a folder the owner granted.
+// ---------------------------------------------------------------------------------------------
+const userFile = (name: string) => join(app.getPath('userData'), name)
+const readJson = <T>(file: string, fallback: T): T => {
+  // strip a UTF-8 BOM: Windows tools (and PowerShell 5) like to write one
+  try { return JSON.parse(readFileSync(file, 'utf8').replace(/^﻿/, '')) as T } catch { return fallback }
+}
+const writeJson = (file: string, v: unknown) => { mkdirSync(app.getPath('userData'), { recursive: true }); writeFileSync(file, JSON.stringify(v, null, 2)) }
+
+const projectRoots = () => readJson<string[]>(userFile('projects.json'), [])
+const scans = new Map<string, ProjectGraph>()
+const scanSafe = (root: string) => { try { const g = scanProject(root); scans.set(root, g); return g } catch { return null } }
+
+let term: pty.IPty | null = null
+let stopWatch: (() => void) | null = null
+const stopTerm = () => { stopWatch?.(); stopWatch = null; try { term?.kill() } catch { /* already gone */ } term = null }
+
+/** Where the owner's own agent lives: saved choice, else the known default location if it exists. */
+const agentPath = (): string | null => {
+  const saved = readJson<{ agent?: string }>(userFile('code.json'), {}).agent
+  if (saved && existsSync(saved)) return saved
+  const guess = 'G:\\NOVA IA DO UMBRA\\agente-codigo\\agente.js'
+  return existsSync(guess) ? guess : null
+}
+/** The owner's own Node (agents may use native modules built for it); falls back to the one inside Electron. */
+const nodeBin = () => { try { return execFileSync('where.exe', ['node'], { encoding: 'utf8' }).split(/\r?\n/)[0].trim() || process.execPath } catch { return process.execPath } }
+const claudeFound = () => { try { execFileSync('where.exe', ['claude'], { stdio: 'ignore' }); return true } catch { return false } }
+
+function registerIpc(getWin: () => BrowserWindow | null) {
+  const send = (ch: string, ...a: unknown[]) => getWin()?.webContents.send(ch, ...a)
+
+  ipcMain.handle('projects:list', () => projectRoots().map((r) => scans.get(r) ?? scanSafe(r)).filter(Boolean))
+  ipcMain.handle('projects:add', async () => {
+    const r = await dialog.showOpenDialog(getWin()!, { properties: ['openDirectory'], title: 'Escolha a pasta do projeto que o JARVIS poderá ler' })
+    if (r.canceled || !r.filePaths[0]) return null
+    const g = scanSafe(r.filePaths[0])
+    if (g && !projectRoots().includes(g.root)) writeJson(userFile('projects.json'), [...projectRoots(), g.root])
+    return g
+  })
+  ipcMain.handle('projects:remove', (_e, root: string) => { writeJson(userFile('projects.json'), projectRoots().filter((r) => r !== root)); scans.delete(root); return true })
+  ipcMain.handle('projects:rescan', (_e, root: string) => (projectRoots().includes(root) ? scanSafe(root) : null))
+
+  ipcMain.handle('code:engines', () => ({ claude: claudeFound(), agent: agentPath(), shell: true }))
+  ipcMain.handle('code:setAgentPath', async () => {
+    const r = await dialog.showOpenDialog(getWin()!, { properties: ['openFile'], filters: [{ name: 'Agente (.js, .bat, .cmd)', extensions: ['js', 'bat', 'cmd'] }], title: 'Escolha o arquivo que inicia o seu agente' })
+    if (r.canceled || !r.filePaths[0]) return agentPath()
+    writeJson(userFile('code.json'), { ...readJson(userFile('code.json'), {}), agent: r.filePaths[0] })
+    return r.filePaths[0]
+  })
+  ipcMain.handle('code:start', (_e, o: { engine: 'claude' | 'agent' | 'shell'; cwd: string; cols: number; rows: number }) => {
+    if (!projectRoots().includes(o.cwd)) return { ok: false, error: 'Escolha uma pasta de projeto autorizada.' }
+    stopTerm()
+    let file = 'powershell.exe'
+    let args: string[] = ['-NoLogo']
+    if (o.engine === 'claude') {
+      if (!claudeFound()) return { ok: false, error: 'O comando "claude" não foi encontrado no PATH.' }
+      file = 'cmd.exe'; args = ['/c', 'claude']
+    } else if (o.engine === 'agent') {
+      const p = agentPath()
+      if (!p) return { ok: false, error: 'Defina onde está o seu agente.' }
+      // Arguments go in separately: node-pty quotes paths with spaces itself, and quotes we add would be doubled.
+      if (/\.js$/i.test(p)) { file = nodeBin(); args = [p] } else { file = 'cmd.exe'; args = ['/c', p] }
+    }
+    term = pty.spawn(file, args, { name: 'xterm-256color', cols: o.cols || 100, rows: o.rows || 30, cwd: o.cwd, env: process.env as Record<string, string> })
+    term.onData((d) => send('code:data', d))
+    term.onExit(({ exitCode }) => { send('code:exit', exitCode); stopWatch?.(); stopWatch = null; term = null })
+    // Metrics exist for Claude Code only: it writes the transcripts we read.
+    if (o.engine === 'claude') stopWatch = watchSession(o.cwd, (m, ev) => send('code:metrics', m, ev))
+    return { ok: true }
+  })
+  ipcMain.on('code:write', (_e, d: string) => { if (typeof d === 'string' && d.length < 100_000) term?.write(d) })
+  ipcMain.on('code:resize', (_e, c: number, r: number) => { if (c > 0 && r > 0 && c < 1000 && r < 400) { try { term?.resize(c, r) } catch { /* terminal closing */ } } })
+  ipcMain.on('code:stop', stopTerm)
+}
+
 async function createWindow() {
   const win = new BrowserWindow({
     width: 1480,
@@ -79,8 +161,9 @@ async function createWindow() {
     show: false,
     titleBarStyle: 'hidden',
     titleBarOverlay: { color: '#02060a', symbolColor: '#7fe8ff', height: 40 },
-    webPreferences: { contextIsolation: true, nodeIntegration: false, sandbox: true },
+    webPreferences: { contextIsolation: true, nodeIntegration: false, sandbox: true, preload: join(__dirname, 'preload.cjs') },
   })
+  registerIpc(() => win)
   win.once('ready-to-show', () => win.show())
   // APP_LOG=<file> mirrors the page's console (errors included) to a file, for headless verification runs.
   if (process.env.APP_LOG) {
@@ -119,6 +202,7 @@ else {
   })
   app.on('window-all-closed', () => app.quit())
   app.on('will-quit', () => {
+    stopTerm()
     bridge?.kill()
     ui?.close()
   })

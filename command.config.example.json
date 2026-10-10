@@ -7,8 +7,13 @@
       "type": "anthropic",
       "label": "Claude API (separate from the Claude Code login)",
       "apiKeyEnv": "ANTHROPIC_API_KEY",
-      "models": ["REPLACE_WITH_A_MODEL_ID_FROM_YOUR_ACCOUNT"],
-      "capabilities": ["chat", "coding"],
+      "models": [
+        "REPLACE_WITH_A_MODEL_ID_FROM_YOUR_ACCOUNT"
+      ],
+      "capabilities": [
+        "chat",
+        "coding"
+      ],
       "priority": 10,
       "enabled": false
     },
@@ -17,8 +22,12 @@
       "type": "typesafe-jev",
       "label": "TypeSafe Jev (decision model, not a text generator)",
       "apiKeyEnv": "TYPESAFE_API_KEY",
-      "models": ["jev-latest"],
-      "capabilities": ["decision"],
+      "models": [
+        "jev-latest"
+      ],
+      "capabilities": [
+        "decision"
+      ],
       "priority": 5,
       "enabled": false
     },
@@ -28,17 +37,74 @@
       "label": "Local llama-server (agente-codigo)",
       "note": "baseUrl/port are a guess (llama-server default). Check the LOCAL_AI_ENDPOINT value in the agente-codigo .env and edit.",
       "baseUrl": "http://127.0.0.1:8080/v1",
-      "models": ["REPLACE_WITH_THE_ID_FROM_GET_/v1/models"],
-      "capabilities": ["chat", "coding"],
+      "models": [
+        "REPLACE_WITH_THE_ID_FROM_GET_/v1/models"
+      ],
+      "capabilities": [
+        "chat",
+        "coding"
+      ],
       "priority": 50,
       "paid": false,
+      "enabled": false
+    },
+    {
+      "id": "gemini",
+      "type": "gemini",
+      "label": "Google Gemini",
+      "apiKeyEnv": "GEMINI_API_KEY",
+      "models": [],
+      "capabilities": [
+        "chat",
+        "coding"
+      ],
+      "priority": 30,
+      "enabled": false
+    },
+    {
+      "id": "openrouter",
+      "type": "openai-compat",
+      "label": "OpenRouter",
+      "baseUrl": "https://openrouter.ai/api/v1",
+      "apiKeyEnv": "OPENROUTER_API_KEY",
+      "models": [],
+      "capabilities": [
+        "chat",
+        "coding"
+      ],
+      "priority": 40,
+      "enabled": false
+    },
+    {
+      "id": "openai",
+      "type": "openai-compat",
+      "label": "OpenAI",
+      "baseUrl": "https://api.openai.com/v1",
+      "apiKeyEnv": "OPENAI_API_KEY",
+      "tokenParam": "max_completion_tokens",
+      "models": [],
+      "capabilities": [
+        "chat",
+        "coding"
+      ],
+      "priority": 50,
       "enabled": false
     }
   ],
   "services": [
-    { "id": "jarvis-bridge", "name": "JARVIS bridge", "url": "http://127.0.0.1:8787/health", "intervalSec": 60 }
+    {
+      "id": "jarvis-bridge",
+      "name": "JARVIS bridge",
+      "url": "http://127.0.0.1:8787/health",
+      "intervalSec": 60
+    }
   ],
   "projects": [
-    { "id": "jarvis", "name": "JARVIS", "port": 8787, "serviceId": "jarvis-bridge" }
+    {
+      "id": "jarvis",
+      "name": "JARVIS",
+      "port": 8787,
+      "serviceId": "jarvis-bridge"
+    }
   ]
 }

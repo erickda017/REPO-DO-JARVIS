@@ -1,11 +1,12 @@
-import test from 'node:test'
+﻿import test from 'node:test'
 import assert from 'node:assert/strict'
 import http from 'node:http'
-import { mkdtemp, readFile } from 'node:fs/promises'
+import { mkdtemp, readFile, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { fakeFetch } from './helpers.mjs'
 import { createServiceMonitor } from '../../bridge/command/services.mjs'
+import { createRouter } from '../../bridge/command/router.mjs'
 import { createTaskStore } from '../../bridge/command/tasks.mjs'
 import { createTimer } from '../../bridge/command/timer.mjs'
 import { createCommand } from '../../bridge/command/index.mjs'
@@ -180,7 +181,7 @@ test('voice test: lists voices with the xi-api-key header; no key -> auth error'
 
 test('api: chat keeps history (no Claude), validates turns; voice endpoints never leak the key', () =>
   withApi(async ({ call, f }) => {
-    const local = { messages: [{ role: 'user', content: 'oi' }, { role: 'assistant', content: 'olá' }, { role: 'user', content: 'tudo bem?' }], confirm: true }
+    const local = { messages: [{ role: 'user', content: 'oi' }, { role: 'assistant', content: 'olÃ¡' }, { role: 'user', content: 'tudo bem?' }], confirm: true }
     const ok = await call('POST', '/api/command/ai/chat', local)
     assert.equal(ok.status, 200)
     const sent = JSON.parse(f.calls.find((c) => c.url.includes('/v1/messages')).body)
@@ -201,3 +202,93 @@ test('api: chat keeps history (no Claude), validates turns; voice endpoints neve
     assert.ok(!audit.text.includes('NEVERLEAKME'))
     assert.equal((await call('POST', '/api/command/voice/clear')).json.source, null)
   }))
+
+import { geminiProvider } from '../../bridge/command/providers/gemini.mjs'
+import { createSettings } from '../../bridge/command/settings.mjs'
+import { createRegistry } from '../../bridge/command/providers/registry.mjs'
+
+test('gemini: key in header only, history mapped to user/model turns, usage parsed', async () => {
+  const KEY = 'AIzaSECRETSECRETSECRET1234'
+  const f = fakeFetch((url) =>
+    url.endsWith('/models?pageSize=200')
+      ? { body: { models: [{ name: 'models/gemini-x' }] } }
+      : { body: { modelVersion: 'gemini-x', candidates: [{ content: { parts: [{ text: 'oi' }] } }], usageMetadata: { promptTokenCount: 5, candidatesTokenCount: 2 } } })
+  const p = geminiProvider({ id: 'g' }, { fetch: f, env: { GEMINI_API_KEY: KEY } })
+  assert.deepEqual((await p.probe()).models, ['gemini-x'])
+  const out = await p.infer({ model: 'models/gemini-x', messages: [{ role: 'user', content: 'a' }, { role: 'assistant', content: 'b' }, { role: 'user', content: 'c' }], system: 'sys' })
+  assert.equal(out.text, 'oi')
+  assert.deepEqual([out.usage.inputTokens, out.usage.outputTokens], [5, 2])
+  const call = f.calls.find((c) => c.url.includes(':generateContent'))
+  assert.ok(call.url.includes('/models/gemini-x:generateContent'))
+  assert.ok(!call.url.includes(KEY), 'key must not be in the URL')
+  assert.equal(call.headers['x-goog-api-key'], KEY)
+  const body = JSON.parse(call.body)
+  assert.deepEqual(body.contents.map((c) => c.role), ['user', 'model', 'user'])
+  assert.equal(body.systemInstruction.parts[0].text, 'sys')
+  const blocked = geminiProvider({ id: 'g' }, { fetch: fakeFetch(() => ({ body: { promptFeedback: { blockReason: 'SAFETY' } } })), env: { GEMINI_API_KEY: KEY } })
+  await assert.rejects(blocked.infer({ model: 'm', prompt: 'x' }), (e) => e.kind === 'bad_response' && /SAFETY/.test(e.message))
+})
+
+test('quota exhaustion: 429-with-quota and 402 are "quota", fail over, and stay out for 10 minutes', async () => {
+  let now = 0
+  const calls = []
+  const f = fakeFetch((url) => {
+    calls.push(url)
+    return url.includes('openai.test') ? { status: 429, body: { error: { message: 'You exceeded your current quota' } } } : { body: { choices: [{ message: { content: 'from backup' } }], model: 'b' } }
+  })
+  const registry = createRegistry(
+    [
+      { id: 'openai', type: 'openai-compat', baseUrl: 'http://openai.test/v1', apiKeyEnv: 'OPENAI_API_KEY', models: ['m'], priority: 1 },
+      { id: 'backup', type: 'openai-compat', baseUrl: 'http://127.0.0.1:1/v1', models: ['b'], priority: 2, paid: false },
+    ],
+    { fetch: f, env: { OPENAI_API_KEY: 'sk-testtesttest' } },
+  )
+  const router = createRouter({ registry, clock: () => now, cooldownMs: 1000 })
+  const first = await router.run({ prompt: 'hi', confirmSpend: true })
+  assert.equal(first.provider, 'backup')
+  assert.equal(first.attempts[0].error.kind, 'quota')
+  const before = calls.length
+  now += 60_000 // a normal rate-limit cooldown would be over; a quota one is not
+  await router.run({ prompt: 'hi', confirmSpend: true })
+  assert.ok(!calls.slice(before).some((u) => u.includes('openai.test')), 'exhausted provider must be skipped')
+  now += 11 * 60_000
+  await router.run({ prompt: 'hi', confirmSpend: true })
+  assert.ok(calls.slice(before).some((u) => u.includes('openai.test')), 'comes back after 10 minutes')
+})
+
+test('settings: keys only for declared names, never returned, saved key wins, overrides apply', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'jv-'))
+  const file = join(dir, 'settings.json')
+  let registry
+  const s = createSettings({ file, getRegistry: () => registry, baseEnv: { OPENROUTER_API_KEY: 'env-key-12345678' } })
+  registry = createRegistry([{ id: 'or', type: 'openai-compat', baseUrl: 'https://openrouter.ai/api/v1', apiKeyEnv: 'OPENROUTER_API_KEY', models: ['x'], enabled: false }], { env: s.env() })
+  await assert.rejects(s.setKey('PATH', 'C:\\evil;C:\\more'), /unknown key name/)
+  await assert.rejects(s.setKey('OPENROUTER_API_KEY', 'short'), /8-400/)
+  assert.equal(s.keys()[0].source, 'env')
+  const list = await s.setKey('OPENROUTER_API_KEY', 'panel-key-ABCDEFGH')
+  assert.deepEqual([list[0].source, list[0].last4], ['panel', 'EFGH'])
+  assert.ok(!JSON.stringify(list).includes('panel-key'))
+  assert.equal(s.env().OPENROUTER_API_KEY, 'panel-key-ABCDEFGH')
+  await s.setProvider('or', { enabled: true, model: 'openai/gpt-4o-mini', priority: 7 })
+  assert.deepEqual([registry.get('or').enabled, registry.get('or').defaultModel, registry.get('or').priority], [true, 'openai/gpt-4o-mini', 7])
+  await assert.rejects(s.setProvider('or', { model: 'bad model!' }), /invalid model/)
+  const s2 = createSettings({ file, getRegistry: () => registry, baseEnv: {} }) // restart
+  registry.update('or', { enabled: false, priority: 1 })
+  await s2.ready()
+  assert.deepEqual([registry.get('or').enabled, registry.get('or').priority, s2.env().OPENROUTER_API_KEY], [true, 7, 'panel-key-ABCDEFGH'])
+})
+
+test('config: a real key pasted into apiKeyEnv is dropped, never echoed, and flagged on the provider', async () => {
+  const { loadConfig } = await import('../../bridge/command/config.mjs')
+  const dir = await mkdtemp(join(tmpdir(), 'jv-'))
+  const SECRET = 'apikey_0123456789abcdef0123456789abcdef'
+  await writeFile(join(dir, 'command.config.json'), JSON.stringify({ providers: [{ id: 'jev', type: 'typesafe-jev', apiKeyEnv: SECRET }, { id: 'ok', type: 'anthropic', apiKeyEnv: 'ANTHROPIC_API_KEY' }] }))
+  const cfg = loadConfig({ root: dir, env: {} })
+  assert.equal(cfg.providers[0].apiKeyEnv, undefined)
+  assert.match(cfg.providers[0].configWarning, /NOME da vari/)
+  assert.ok(!JSON.stringify(cfg).includes('0123456789abcdef'), 'the key must not survive in the loaded config')
+  assert.equal(cfg.providers[1].apiKeyEnv, 'ANTHROPIC_API_KEY')
+  const registry = createRegistry(cfg.providers, { env: {} })
+  assert.equal(registry.get('jev').keyEnv, 'TYPESAFE_API_KEY')
+  assert.ok(registry.get('jev').warning)
+})

@@ -11,6 +11,7 @@ export const ERROR_KINDS = Object.freeze([
   'timeout', // we gave up waiting
   'auth', // 401/403, or no key configured
   'rate_limit', // 429
+  'quota', // out of credit / daily quota: fall to the next provider and stay away for a long while
   'server', // 5xx from the provider
   'bad_request', // 4xx other than the above
   'model_not_found',
@@ -20,7 +21,7 @@ export const ERROR_KINDS = Object.freeze([
   'blocked', // refused locally by policy (spend, sensitive data, ...)
 ])
 
-const RETRYABLE = new Set(['network', 'timeout', 'rate_limit', 'server'])
+const RETRYABLE = new Set(['network', 'timeout', 'rate_limit', 'quota', 'server'])
 
 export class ProviderError extends Error {
   /**
@@ -67,6 +68,9 @@ export function classifyStatus(status, provider) {
   }
   if (status === 404) {
     return new ProviderError('model_not_found', 'endpoint or model not found (HTTP 404)', { status, provider })
+  }
+  if (status === 402) {
+    return new ProviderError('quota', 'payment required: out of credit (HTTP 402)', { status, provider })
   }
   if (status === 429) {
     return new ProviderError('rate_limit', 'rate limited (HTTP 429)', { status, provider })

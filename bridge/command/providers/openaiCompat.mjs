@@ -49,7 +49,8 @@ export function openaiCompatProvider(cfg, { fetch: fetchImpl = fetch, env = proc
       const res = await request(fetchImpl, `${baseUrl}/chat/completions`, {
         method: 'POST',
         headers: headers(),
-        body: JSON.stringify({ model, messages, max_tokens: maxTokens }),
+        // OpenAI's newer models reject `max_tokens`; local servers and OpenRouter still take it.
+        body: JSON.stringify({ model, messages, [cfg.tokenParam ?? 'max_tokens']: maxTokens }),
         timeoutMs: cfg.inferTimeoutMs ?? 120000,
         provider: cfg.id,
       })

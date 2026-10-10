@@ -3,12 +3,14 @@ import { anthropicProvider } from './anthropic.mjs'
 import { openaiCompatProvider } from './openaiCompat.mjs'
 import { unverifiedProvider } from './unverified.mjs'
 import { jevProvider } from './jev.mjs'
+import { geminiProvider } from './gemini.mjs'
 
 const FACTORIES = {
   anthropic: anthropicProvider,
   'openai-compat': openaiCompatProvider,
   unverified: unverifiedProvider,
   'typesafe-jev': jevProvider,
+  gemini: geminiProvider,
 }
 
 const LOOPBACK = new Set(['localhost', '127.0.0.1', '[::1]', '::1'])
@@ -53,11 +55,21 @@ export function createRegistry(providerConfigs = [], deps = {}) {
       allowSensitive: cfg.allowSensitive === true,
       paid: cfg.paid !== false,
       allowFallback: cfg.allowFallback !== false,
+      warning: cfg.configWarning ?? null,
+      keyEnv: cfg.apiKeyEnv ?? (cfg.type === 'anthropic' ? 'ANTHROPIC_API_KEY' : cfg.type === 'gemini' ? 'GEMINI_API_KEY' : cfg.type === 'typesafe-jev' ? 'TYPESAFE_API_KEY' : null),
       adapter: factory(cfg, deps),
     })
   }
   return {
     list: () => [...entries.values()],
     get: (id) => entries.get(id) ?? null,
+    /** Runtime overrides from the owner's settings: on/off, model, priority. */
+    update(id, { enabled, model, priority }) {
+      const p = entries.get(id)
+      if (!p) return
+      if (enabled !== undefined) p.enabled = enabled
+      if (model !== undefined) p.defaultModel = model
+      if (priority !== undefined) p.priority = priority
+    },
   }
 }

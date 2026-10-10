@@ -93,6 +93,31 @@ one is already listening on 8787, and serves the UI from `127.0.0.1:5174`
 (main process), `app/renderer/src` (UI). Tests: `npm run test:app` (neural
 graph, activity spreading, health tone, command parsing). Preview: `docs/app-home.png`.
 
+### More AIs, quota failover, Programar mode, project networks (round 3)
+
+- **Providers**: Google Gemini (native adapter, contract checked against Google's discovery document), OpenRouter and
+  OpenAI (OpenAI-compatible adapter; OpenAI uses `max_completion_tokens`), next to local, Anthropic and Jev. They ship
+  disabled with no model; in the **IAs** screen paste the key (stored in `data/settings.json`, never shown again), run
+  Checar, pick a model from the provider's own catalogue and switch it on. Keys are only accepted for names a provider
+  declares in `apiKeyEnv`.
+- **Quota failover**: HTTP 402, or a 429 whose body talks about quota/billing/credit, is classified `quota`; the router
+  moves to the next eligible provider by priority and keeps the exhausted one out for 10 minutes. This is deterministic
+  code; Jev only classifies the request kind in `smartRun`.
+- **Programar**: xterm.js on a ConPTY (`@lydell/node-pty`, prebuilt, no compiler needed) running **Claude Code**, **your own
+  agent** (`agente.js`, set once with "Definir agente") or a PowerShell, inside a folder you authorised. The side panel
+  reads Claude Code's own transcript files (`~/.claude/projects/<folder>/*.jsonl`, only appended bytes, only after the terminal
+  started): tokens in/out/cache, responses, tools, plan, files touched, recent actions, sub-agent calls. Your own agent
+  and the shell have no metrics. No hooks are installed into Claude's settings.
+  GhosttyEXTREME was studied as inspiration only (macOS-only Zig/Swift, AGPL-3.0): no code was copied.
+- **Project networks**: "Projetos" authorises a folder (native picker). It is scanned read-only (max 700 items, skips
+  node_modules/.git/dist, never follows symlinks, git branch and remote without credentials) into folders, files,
+  relative imports and key files (README, manifests, CI). Each project is a satellite network around the core; files the
+  agent touches light up.
+- **UI**: stats moved to the title bar, the command box is a rounded pill with icon toggles, rounder panels and cards,
+  ambient particles over the whole interface (off with reduced-motion), main network smaller.
+- **Security note**: a real key pasted into `apiKeyEnv` is discarded with a warning (never echoed) and installers only embed
+  a sanitised default config.
+
 ### Installer (Windows)
 
 `npm run app:dist` builds, into `release/out/` (git-ignored):

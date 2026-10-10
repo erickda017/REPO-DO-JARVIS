@@ -3,7 +3,11 @@ import { api, ApiError, speakViaBridge, type AuditEntry, type ChatTurn, type Ove
 import { entityForAudit } from './neural/graph.ts'
 import { mediaUrls, parseIntent } from './intents.ts'
 
-export type View = 'home' | 'chat' | 'ais' | 'system' | 'voice'
+import type { ProjectGraph } from '../../electron/projects.ts'
+import type { AgentEvent, Metrics } from '../../electron/transcripts.ts'
+
+export type View = 'home' | 'chat' | 'code' | 'projects' | 'ais' | 'system' | 'voice'
+export interface Touch { id: number; path: string; at: number }
 
 export type CardBody =
   | { type: 'text'; text: string; meta?: string }
@@ -28,6 +32,15 @@ interface State {
   sensitive: boolean
   spend: boolean
   speak: boolean
+  projects: ProjectGraph[]
+  touches: Touch[]
+  metrics: Metrics | null
+  events: AgentEvent[]
+  loadProjects: () => Promise<void>
+  addProject: () => Promise<void>
+  removeProject: (root: string) => Promise<void>
+  rescanProject: (root: string) => Promise<void>
+  agentUpdate: (m: Metrics, ev: AgentEvent[]) => void
   setView: (v: View) => void
   select: (id: string | null) => void
   toggle: (k: 'sensitive' | 'spend' | 'speak') => void
@@ -58,6 +71,34 @@ export const useApp = create<State>((set, get) => ({
   sensitive: false,
   spend: false,
   speak: false,
+  projects: [],
+  touches: [],
+  metrics: null,
+  events: [],
+
+  loadProjects: async () => set({ projects: (await window.jarvis?.projects.list()) ?? [] }),
+  addProject: async () => {
+    const g = await window.jarvis?.projects.add()
+    if (g) set((s) => ({ projects: [...s.projects.filter((p) => p.root !== g.root), g] }))
+  },
+  removeProject: async (root) => {
+    await window.jarvis?.projects.remove(root)
+    set((s) => ({ projects: s.projects.filter((p) => p.root !== root) }))
+  },
+  rescanProject: async (root) => {
+    const g = await window.jarvis?.projects.rescan(root)
+    if (g) set((s) => ({ projects: s.projects.map((p) => (p.root === root ? g : p)) }))
+  },
+  /** Metrics from the Claude Code transcript; every file the agent touched lights its node in the project network. */
+  agentUpdate: (metrics, ev) =>
+    set((s) => {
+      const fresh = ev.filter((e) => e.kind === 'tool' && e.target && /^[A-Za-z]:[\\/]|^\//.test(e.target))
+      return {
+        metrics,
+        events: [...s.events, ...ev].slice(-80),
+        touches: [...s.touches, ...fresh.map((e) => ({ id: ++seq, path: e.target!, at: performance.now() }))].slice(-40),
+      }
+    }),
 
   setView: (view) => set({ view }),
   select: (selected) => set({ selected }),

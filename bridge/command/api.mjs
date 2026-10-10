@@ -45,7 +45,7 @@ const PERSONA =
   'Você é o JARVIS, assistente pessoal do usuário. Responda em português do Brasil, de forma direta e curta ' +
   '(no máximo duas ou três frases, a menos que peçam mais). Não invente fatos nem ações que não executou.'
 
-export function createApi({ health, router, services, projects, tasks, timer, audit, voice, allowNoOrigin }) {
+export function createApi({ health, router, services, projects, tasks, timer, audit, voice, settings, allowNoOrigin }) {
   const PREFIX = '/api/command/'
 
   const routes = {
@@ -98,6 +98,14 @@ export function createApi({ health, router, services, projects, tasks, timer, au
         confirmSpend: b.confirm === true,
         maxTokens: Number.isInteger(b.maxTokens) ? Math.min(b.maxTokens, 2048) : 512,
       }),
+    // Provider API keys and per-provider switches, managed from the app. Keys are never returned.
+    'GET keys': async () => settings.keys(),
+    'POST keys': async (b) => settings.setKey(String(b.name ?? ''), b.value),
+    'POST keys/clear': async (b) => settings.clearKey(String(b.name ?? '')),
+    'POST providers/update': async (b) => {
+      await settings.setProvider(String(b.id ?? ''), { enabled: b.enabled, model: b.model, priority: b.priority })
+      return health.snapshot()
+    },
     'GET voice': async () => voice.status(),
     'POST voice': async (b) => voice.set({ apiKey: b.apiKey, voiceId: b.voiceId }),
     'POST voice/test': async () => voice.test(),

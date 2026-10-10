@@ -2,8 +2,9 @@ import { useState } from 'react'
 import { ArrowUp, Lock, Volume2, Wallet } from 'lucide-react'
 import { useApp } from '../store.ts'
 
-const HINTS = ['como estão as IAs?', 'minhas tarefas', 'timer de 5 min', 'criar tarefa: revisar o roteador']
+const HINTS = ['como estão as IAs?', 'minhas tarefas', 'timer de 5 min']
 
+/** One rounded pill: the three options sit inside as quiet icon toggles; suggestions appear only while it is empty and focused. */
 export function CommandBar({ large = false }: { large?: boolean }) {
   const [text, setText] = useState('')
   const { send, busy, sensitive, spend, speak, toggle } = useApp()
@@ -12,20 +13,19 @@ export function CommandBar({ large = false }: { large?: boolean }) {
     void send(text)
     setText('')
   }
+  const opt = (on: boolean, key: 'sensitive' | 'spend' | 'speak', label: string, Icon: typeof Lock) => (
+    <button className="opt" aria-pressed={on} onClick={() => toggle(key)} title={label} aria-label={label}>
+      <Icon size={15} />
+    </button>
+  )
   return (
     <div className={`command ${large ? 'large' : ''}`}>
-      <div className="command-chips" role="group" aria-label="Opções do pedido">
-        <button className="chip" aria-pressed={sensitive} onClick={() => toggle('sensitive')} title="O pedido nunca sai deste PC">
-          <Lock size={13} /> Sensível
-        </button>
-        <button className="chip" aria-pressed={spend} onClick={() => toggle('spend')} title="Permite provedores pagos">
-          <Wallet size={13} /> Autorizo gasto
-        </button>
-        <button className="chip" aria-pressed={speak} onClick={() => toggle('speak')} title="Fala a resposta em voz alta">
-          <Volume2 size={13} /> Falar
-        </button>
-      </div>
       <div className="command-row">
+        <div className="opts" role="group" aria-label="Opções do pedido">
+          {opt(sensitive, 'sensitive', 'Sensível: o pedido nunca sai deste PC', Lock)}
+          {opt(spend, 'spend', 'Autorizo gasto: permite provedores pagos', Wallet)}
+          {opt(speak, 'speak', 'Falar a resposta em voz alta', Volume2)}
+        </div>
         <textarea
           rows={1}
           value={text}
@@ -43,11 +43,9 @@ export function CommandBar({ large = false }: { large?: boolean }) {
           {busy ? <span className="spinner" aria-hidden /> : <ArrowUp size={18} />}
         </button>
       </div>
-      {!large && (
+      {!large && !text && (
         <div className="hints">
-          {HINTS.map((h) => (
-            <button key={h} className="hint" onClick={() => void send(h)} disabled={busy}>{h}</button>
-          ))}
+          {HINTS.map((h) => <button key={h} className="hint" onClick={() => void send(h)} disabled={busy}>{h}</button>)}
         </div>
       )}
     </div>

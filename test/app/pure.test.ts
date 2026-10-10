@@ -58,3 +58,50 @@ test('intents: predictable commands, everything else is chat', () => {
   assert.equal(parseIntent('timer de 9999 horas').kind, 'chat')
   assert.deepEqual(mediaUrls('veja https://a.test/v.mp4, e https://a.test/p.JPG.'), [{ url: 'https://a.test/v.mp4', mediaType: 'video' }, { url: 'https://a.test/p.JPG', mediaType: 'image' }])
 })
+
+import { mkdtempSync, mkdirSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
+import { scanProject, insideRoot } from '../../app/electron/projects.ts'
+import { applyLine, emptyMetrics, projectDirName } from '../../app/electron/transcripts.ts'
+import { findNode, layoutProject } from '../../app/renderer/src/neural/projectGraph.ts'
+
+test('project scan: tree, relative imports, key files, git remote without credentials, skips node_modules', () => {
+  const d = mkdtempSync(join(tmpdir(), 'proj-'))
+  mkdirSync(join(d, 'src', 'lib'), { recursive: true })
+  mkdirSync(join(d, 'node_modules', 'x'), { recursive: true })
+  mkdirSync(join(d, '.git'))
+  writeFileSync(join(d, 'README.md'), '# x')
+  writeFileSync(join(d, 'package.json'), '{}')
+  writeFileSync(join(d, 'src', 'main.ts'), "import { a } from './lib/util'\nimport React from 'react'\n")
+  writeFileSync(join(d, 'src', 'lib', 'util.ts'), 'export const a = 1')
+  writeFileSync(join(d, 'node_modules', 'x', 'i.js'), '1')
+  writeFileSync(join(d, '.git', 'HEAD'), 'ref: refs/heads/dev\n')
+  writeFileSync(join(d, '.git', 'config'), '[remote "origin"]\n\turl = https://user:tok@github.com/o/r.git\n')
+  const g = scanProject(d)
+  const paths = g.nodes.map((n) => n.path)
+  assert.ok(paths.includes('src/lib/util.ts') && !paths.some((p) => p.includes('node_modules')))
+  assert.equal(g.nodes.find((n) => n.path === 'README.md')?.kind, 'key')
+  const main = g.nodes.findIndex((n) => n.path === 'src/main.ts'), util = g.nodes.findIndex((n) => n.path === 'src/lib/util.ts')
+  assert.ok(g.edges.some(([a, b, k]) => a === main && b === util && k === 'import'))
+  assert.deepEqual([g.git?.branch, g.git?.remote], ['dev', 'https://github.com/o/r.git'])
+  assert.equal(findNode(g, join(d, 'SRC', 'main.ts')), main)
+  assert.ok(insideRoot(d, join(d, 'src')) && !insideRoot(d, tmpdir()))
+  const lay = layoutProject(g)
+  assert.equal(lay.positions.length, g.nodes.length * 3)
+  assert.ok([...lay.positions].every(Number.isFinite))
+})
+
+test('transcript metrics: usage counted once per message id, tools, files, todos, subagents', () => {
+  const m = emptyMetrics()
+  const line = (o: object) => JSON.stringify(o)
+  const a = { type: 'assistant', sessionId: 's1', timestamp: 't', isSidechain: false, message: { id: 'm1', model: 'x', usage: { input_tokens: 10, output_tokens: 5, cache_read_input_tokens: 100 }, content: [{ type: 'tool_use', id: 't1', name: 'Read', input: { file_path: String.raw`C:\p\a.ts` } }] } }
+  applyLine(line(a), m)
+  applyLine(line(a), m) // same message streamed twice
+  const ev = applyLine(line({ type: 'assistant', message: { id: 'm2', usage: { output_tokens: 2 }, content: [{ type: 'tool_use', name: 'Task', input: { description: 'explore' } }, { type: 'tool_use', name: 'TodoWrite', input: { todos: [{ content: 'a', status: 'pending' }] } }] } }), m)
+  assert.deepEqual([m.inputTokens, m.outputTokens, m.cacheRead, m.turns], [10, 7, 100, 2])
+  assert.deepEqual([m.tools.Read, m.tools.Task, m.files[0], m.subagentCalls, m.todos[0].text], [1, 1, String.raw`C:\p\a.ts`, 1, 'a'])
+  assert.deepEqual(ev.map((e) => e.kind), ['subagent', 'todo'])
+  assert.equal(applyLine('not json', m).length, 0)
+  assert.equal(projectDirName(String.raw`G:\JARIVS`), 'G--JARIVS')
+})

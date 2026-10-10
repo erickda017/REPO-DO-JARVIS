@@ -10,11 +10,15 @@ export interface ProviderView {
   enabled: boolean
   external: boolean
   paid: boolean
+  keyEnv: string | null
+  warning: string | null
+  priority: number
   model: string | null
   capabilities: string[]
-  status: null | { endpoint: Check; auth: Check; model: Check; inference: Check; checkedAt: string }
+  status: null | { endpoint: Check; auth: Check; model: Check; inference: Check; checkedAt: string; models?: string[] | null }
   recentErrors: { kind: string; message: string; at: string }[]
 }
+export interface KeyStatus { name: string; configured: boolean; source: string | null; last4: string | null }
 export interface ServiceView {
   id: string
   name: string
@@ -71,6 +75,10 @@ export const api = {
   updateTask: (id: string, patch: Partial<Pick<Task, 'state' | 'priority'>>) => call<Task>('POST', 'tasks/update', { id, ...patch }),
   deleteTask: (id: string) => call<unknown>('POST', 'tasks/delete', { id, confirm: true }),
   timer: (action: 'start' | 'pause' | 'resume' | 'cancel', seconds?: number, label?: string) => call<TimerView>('POST', `timer/${action}`, action === 'start' ? { seconds, label } : {}),
+  keys: () => call<KeyStatus[]>('GET', 'keys'),
+  setKey: (name: string, value: string) => call<KeyStatus[]>('POST', 'keys', { name, value }),
+  clearKey: (name: string) => call<KeyStatus[]>('POST', 'keys/clear', { name }),
+  providerUpdate: (id: string, patch: { enabled?: boolean; model?: string; priority?: number }) => call<ProviderView[]>('POST', 'providers/update', { id, ...patch }),
   voice: () => call<VoiceStatus>('GET', 'voice'),
   voiceSet: (apiKey?: string, voiceId?: string) => call<VoiceStatus>('POST', 'voice', { apiKey, voiceId }),
   voiceTest: () => call<VoiceTest>('POST', 'voice/test'),

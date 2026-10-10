@@ -10,6 +10,7 @@ import { createTaskStore } from './tasks.mjs'
 import { createTimer } from './timer.mjs'
 import { createApi } from './api.mjs'
 import { createVoice } from './voice.mjs'
+import { createSettings } from './settings.mjs'
 
 /**
  * Wires the command centre together. Every dependency that touches the world
@@ -18,7 +19,9 @@ import { createVoice } from './voice.mjs'
  */
 export function createCommand({ config = loadConfig(), fetch: fetchImpl = fetch, env = process.env, clock = Date.now, allowNoOrigin = false, persist = true, envKey = () => null } = {}) {
   const audit = createAudit({ file: persist ? join(config.dataDir, 'audit.jsonl') : null, clock })
-  const registry = createRegistry(config.providers, { fetch: fetchImpl, env })
+  let registry
+  const settings = createSettings({ file: persist ? join(config.dataDir, 'settings.json') : null, getRegistry: () => registry, baseEnv: env, audit })
+  registry = createRegistry(config.providers, { fetch: fetchImpl, env: settings.env() })
   const health = createHealth({ registry, audit, clock })
   const router = createRouter({ registry, health, audit, clock })
   const services = createServiceMonitor({ services: config.services, fetch: fetchImpl, clock, audit })
@@ -26,7 +29,7 @@ export function createCommand({ config = loadConfig(), fetch: fetchImpl = fetch,
   const tasks = createTaskStore({ file: persist ? join(config.dataDir, 'tasks.json') : null, clock, audit })
   const timer = createTimer({ file: persist ? join(config.dataDir, 'timer.json') : null, clock, audit })
   const voice = createVoice({ file: persist ? join(config.dataDir, 'voice.json') : null, env, envKey, fetch: fetchImpl, audit })
-  const parts = { config, registry, health, router, services, projects, tasks, timer, audit, voice }
+  const parts = { config, registry, health, router, services, projects, tasks, timer, audit, voice, settings }
   const api = createApi({ ...parts, allowNoOrigin })
   if (config.autoStartMonitors) services.start()
   return { ...parts, api }

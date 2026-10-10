@@ -107,6 +107,7 @@ const ALLOW_WRITES = process.env.JARVIS_ALLOW_WRITES === '1'
  */
 const command = createCommand({ allowNoOrigin: ALLOW_NO_ORIGIN, envKey: () => baseElevenKey() })
 await command.voice.ready()
+await command.settings.ready()
 
 /**
  * The orchestrator model. Override with JARVIS_MODEL to trade quality for pace

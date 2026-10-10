@@ -22,6 +22,14 @@ export function loadConfig({ root = process.cwd(), env = process.env } = {}) {
     }
     if (name !== 'autoStartMonitors' && !Array.isArray(value)) throw new Error(`command config: "${name}" must be an array`)
   }
+  // `apiKeyEnv` must be the NAME of an environment variable. A real key pasted there would be shown in the UI
+  // and copied into builds, so it is dropped (never echoed) and the provider carries a warning instead.
+  for (const p of raw.providers ?? []) {
+    if (typeof p.apiKeyEnv === 'string' && !/^[A-Z][A-Z0-9_]{1,60}$/.test(p.apiKeyEnv)) {
+      delete p.apiKeyEnv
+      p.configWarning = 'apiKeyEnv parecia conter a própria chave. Ele foi ignorado: o campo deve ter o NOME da variável (ex.: TYPESAFE_API_KEY). Cole a chave no campo da tela IAs e, por segurança, troque-a no serviço, pois ela esteve escrita neste arquivo.'
+    }
+  }
   return {
     path,
     providers: raw.providers ?? [],
