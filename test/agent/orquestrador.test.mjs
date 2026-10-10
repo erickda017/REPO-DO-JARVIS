@@ -57,7 +57,7 @@ async function world({ dir = null, autoDev = true, limits, memoryFile = null } =
   let model = null
   const router = { run: (r) => model.run(r) }
   const agent = createAgent({ router, tools, access, flags, jobDeadlineMs: 60_000 })
-  const make = (d = dir) => createOrchestrator({ router, agent, access, memory, dir: d, limits })
+  const make = (d = dir) => createOrchestrator({ router, agent, access, memory, dir: d, limits, fast: false })
   const w = { home, proj, access, tools, agent, memory, router, orch: make(), make, use: (m) => (model = m), run: (args, cwd = proj) => tool('project_run', { program: 'node', args, cwd }) }
   return w
 }

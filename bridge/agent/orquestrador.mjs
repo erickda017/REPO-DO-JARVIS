@@ -105,7 +105,7 @@ Ferramentas ligadas agora: ${groupsOn || 'nenhuma'}. Desligadas (não dependa de
  * @param {object} deps.access  for the plan prompt (which groups are on)
  * @param {string|null} deps.dir  data/missions (null = memory only)
  */
-export function createOrchestrator({ router, agent, access, memory = null, audit = null, dir = null, clock = Date.now, limits = {}, hooks = {} }) {
+export function createOrchestrator({ router, agent, access, memory = null, audit = null, dir = null, clock = Date.now, limits = {}, hooks = {}, fast = true }) {
   const defaults = { ...DEFAULT_LIMITS, ...limits }
   const missions = new Map()
   const running = new Map() // id -> { cancelled, jobs:Set<jobId> }
@@ -270,6 +270,25 @@ export function createOrchestrator({ router, agent, access, memory = null, audit
     await persist(m)
   }
 
+  const SEQUENCE = /\b(depois|então|entao|em seguida|primeiro|segundo|por fim|a seguir|etapas?|passo a passo|em paralelo)\b|[;\n]|\d\)|\b1\./i
+  const STRUCTURED = /audit|analis|diagn|segur|relat[óo]rio|revis|investig|pesquis|compar|refator|migr/i
+  /**
+   * Short goals with one clear action skip planning. In the grey zone (up to 300 characters, no sequence words) the fast
+   * decision model (Jev, if one is on) is asked, for at most 4 s; without it, or on any doubt, the normal planner runs.
+   */
+  async function isSingleStep(goal, options = {}) {
+    const g = String(goal ?? '').trim()
+    if (!fast || !g || g.length > 300 || SEQUENCE.test(g) || STRUCTURED.test(g)) return false
+    if (g.length <= 120) return true
+    try {
+      const d = await Promise.race([
+        router.decide({ state: g, sensitive: options.sensitive, confirmSpend: options.confirmSpend, questions: { multi: { type: 'noul', instructions: 'Does this request need several distinct, ordered steps (rather than one action)?' } } }),
+        new Promise((_, rej) => setTimeout(() => rej(new Error('slow')), 4000).unref?.()),
+      ])
+      return d.answers.multi.noul < 0.35
+    } catch { return false }
+  }
+
   /** The loop. Safe to call again on an interrupted mission: finished steps are never redone. */
   async function execute(m) {
     try {
@@ -277,7 +296,9 @@ export function createOrchestrator({ router, agent, access, memory = null, audit
         m.status = 'planning'; m.phase = 'plano'
         await persist(m)
         let plan = null
-        try { plan = await makePlan(m) } catch (e) { note(m, `planejamento falhou: ${e.message}`, 'warn') }
+        // A short, single-action goal does not need a planning call (seconds of a strong model): one general step does it.
+        if (await isSingleStep(m.goal, m.options)) { plan = { criteria: [], steps: [{ id: 'e1', title: 'Executar o pedido', role: 'geral', goal: m.goal, depends: [] }] }; note(m, 'pedido simples: sem planejamento') }
+        else try { plan = await makePlan(m) } catch (e) { note(m, `planejamento falhou: ${e.message}`, 'warn') }
         if (running.get(m.id)?.cancelled) return finish(m, 'cancelled', 'cancelada durante o planejamento')
         // A plan the model could not produce (or got wrong) never blocks the user: one general step does the whole job.
         if (!plan) { plan = { criteria: [], steps: [{ id: 'e1', title: 'Executar o pedido', role: 'geral', goal: m.goal, depends: [] }] }; note(m, 'plano inválido: usando uma etapa única', 'warn') }
@@ -332,7 +353,10 @@ export function createOrchestrator({ router, agent, access, memory = null, audit
       if (!m.steps.some((s) => s.status === 'done')) return finish(m, 'nao_concluido', clip(m.steps.map((s) => `${s.id}: ${s.result?.summary ?? s.status}`).join(' | '), 600))
       let verdict = 'inconclusivo'
       if (doneAll && !anyFailed && !stopReason(m)) {
-        verdict = await verify(m)
+        // Every action already proved by its own tool: an auditor job (several model calls) would only repeat it.
+        const proven = m.steps.filter((s) => s.status === 'done').every((s) => (s.result?.evidence ?? []).every((e) => e.verified === true))
+        if (fast && proven) { verdict = 'confere'; m.verification = { ...(m.verification ?? {}), verdict, text: 'Todas as ações foram verificadas pelas próprias ferramentas.' }; note(m, 'verificação independente dispensada: as ferramentas já provaram cada ação') }
+        else verdict = await verify(m)
         if (verdict === 'divergente' && m.replans < m.limits.maxReplans && !stopReason(m)) {
           // The auditor disagrees with the agents: one corrective round with its findings.
           m.replans++

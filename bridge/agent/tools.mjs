@@ -1,4 +1,5 @@
 import { createHash } from 'node:crypto'
+import { execFile, spawn } from 'node:child_process'
 import { copyFile, mkdir, open, readdir, readFile, rename, rm, stat, writeFile } from 'node:fs/promises'
 import { existsSync } from 'node:fs'
 import { basename, dirname, join } from 'node:path'
@@ -187,19 +188,29 @@ export function buildTools({ access, monitor, profiles, env = process.env, dataD
     return { data: { url: r.url, text: clip(/html/i.test(r.type) ? htmlToText(r.text) : r.text, Math.min(Number(maxChars) || 6000, 20000)) } }
   })
 
+  // Opening things is the most common request, so it avoids PowerShell on the way in: rundll32 opens the link, explorer.exe launches
+  // the app, and the Start-menu list is read once in the background and kept in memory (listing it costs seconds).
   def('url_open', 'web', 'write', 'Abre um endereço http(s) no navegador padrão.', { url: 'endereço http(s)' }, async ({ url }) => {
     const u = new URL(String(url))
     if (!/^https?:$/.test(u.protocol)) throw new AgentError('url', 'só http(s)')
     if (!isWindows) throw new AgentError('platform', 'só no Windows')
-    await ps(`Start-Process ${q(u.href)}`, { timeoutMs: 10000 })
+    await new Promise((resolve, reject) => execFile('rundll32.exe', ['url.dll,FileProtocolHandler', u.href], { timeout: 10000, windowsHide: true }, (err) => (err ? reject(new AgentError('open', 'o Windows não abriu o endereço')) : resolve())))
     return { data: { url: u.href }, verified: null, evidence: 'o pedido de abertura foi enviado ao Windows; não há como confirmar a janela a partir daqui' }
   })
 
-  // ------------------------------------------------------------------------- apps
+  let startApps = { at: 0, rows: null, loading: null }
+  const loadStartApps = () => {
+    if (startApps.rows && Date.now() - startApps.at < 10 * 60_000) return Promise.resolve(startApps.rows)
+    return (startApps.loading ??= psJson('Get-StartApps | Select-Object Name,AppID | ConvertTo-Json -Compress', { timeoutMs: 30000 }).then(
+      (r) => { startApps = { at: Date.now(), rows: [].concat(r ?? []), loading: null }; return startApps.rows },
+      (e) => { startApps.loading = null; throw e },
+    ))
+  }
+  if (isWindows && dataDir) setTimeout(() => loadStartApps().catch(() => {}), 1500).unref?.() // warm before the first "abrir X"
+
   def('app_list', 'apps', 'read', 'Lista aplicativos instalados (menu Iniciar), opcionalmente filtrando pelo nome.', { filter: 'parte do nome' }, async ({ filter = '' }) => {
-    const f = String(filter).replace(/[^\w .+-]/g, '')
-    const rows = [].concat((await psJson(`Get-StartApps | Where-Object { $_.Name -like '*${f}*' } | Select-Object -First 40 Name,AppID | ConvertTo-Json -Compress`, { timeoutMs: 20000 })) ?? [])
-    return { data: { apps: rows } }
+    const f = String(filter).toLowerCase()
+    return { data: { apps: (await loadStartApps()).filter((a) => a.Name.toLowerCase().includes(f)).slice(0, 40) } }
   })
 
   def('app_open', 'apps', 'write', 'Abre um aplicativo instalado pelo nome (ex.: Discord) ou por um caminho .exe/.lnk existente.', { name: 'nome do aplicativo', path: 'ou caminho do executável' }, async ({ name, path }) => {
@@ -212,18 +223,29 @@ export function buildTools({ access, monitor, profiles, env = process.env, dataD
     }
     const n = String(name ?? '').trim()
     if (!n) throw new AgentError('args', 'informe name ou path')
-    const apps = [].concat((await psJson(`Get-StartApps | Where-Object { $_.Name -like ${q('*' + n + '*')} } | Select-Object Name,AppID | ConvertTo-Json -Compress`, { timeoutMs: 20000 })) ?? [])
-    if (!apps.length) throw new AgentError('missing', `nenhum aplicativo instalado parece "${n}"`)
-    const best = apps.find((a) => a.Name.toLowerCase() === n.toLowerCase()) ?? apps[0]
-    await ps(`Start-Process explorer.exe ${q('shell:AppsFolder\\' + best.AppID)}`, { timeoutMs: 15000 })
-    // Verify: a window or process that matches the name must show up.
-    const key = best.Name.split(/[\s.]/)[0].replace(/[^\w]/g, '')
-    let seen = false
-    for (let i = 0; i < 8 && !seen; i++) {
-      await new Promise((r) => setTimeout(r, 1000))
-      seen = (await ps(`if (Get-Process | Where-Object { $_.ProcessName -like '*${key}*' -or $_.MainWindowTitle -like '*${key}*' }) {'1'} else {'0'}`, { timeoutMs: 8000 }).catch(() => '0')) === '1'
+    // "a|b|c" = alternatives in order of preference (e.g. the browsers); the first one installed is opened.
+    const all = await loadStartApps()
+    let apps = []
+    let asked = n
+    for (const alt of n.split('|').map((s) => s.trim()).filter(Boolean)) {
+      apps = all.filter((a) => a.Name.toLowerCase().includes(alt.toLowerCase()))
+      asked = alt
+      if (apps.length) break
     }
-    return { data: { app: best.Name, otherMatches: apps.slice(0, 5).map((a) => a.Name) }, verified: seen, evidence: seen ? `processo/janela "${key}" encontrado` : `não vi nenhum processo ou janela "${key}" em 8 s (pode ter aberto sob outro nome)` }
+    if (!apps.length) throw new AgentError('missing', `nenhum aplicativo instalado parece "${n}"`)
+    const best = apps.find((a) => a.Name.toLowerCase() === asked.toLowerCase()) ?? apps[0]
+    // explorer.exe hands the app to the shell and exits at once (with a non-zero code): only wait for it to start.
+    await new Promise((resolve, reject) => {
+      const c = spawn('explorer.exe', [`shell:AppsFolder\\${best.AppID}`], { detached: true, stdio: 'ignore', windowsHide: true })
+      c.once('error', reject)
+      c.once('spawn', () => { c.unref(); resolve() })
+    })
+    // Verify with ONE PowerShell run that polls every 250 ms and answers the moment a process or window matches (up to 6 s).
+    const words = best.Name.split(/[\s.]+/).map((w) => w.replace(/[^\w]/g, '')).filter((w) => w.length >= 4)
+    const keys = (words.length ? words : [best.Name.replace(/[^\w]/g, '')]).slice(0, 3)
+    const test = keys.map((k) => `$_.ProcessName -like ${q('*' + k + '*')} -or $_.MainWindowTitle -like ${q('*' + k + '*')}`).join(' -or ')
+    const seen = (await ps(`$end=(Get-Date).AddSeconds(6); $f='0'; while((Get-Date) -lt $end){ if (Get-Process | Where-Object { ${test} }) { $f='1'; break }; Start-Sleep -Milliseconds 250 }; $f`, { timeoutMs: 12000 }).catch(() => '0')) === '1'
+    return { data: { app: best.Name, otherMatches: apps.slice(0, 5).map((a) => a.Name) }, verified: seen, evidence: seen ? `processo/janela "${keys.join('/')}" encontrado` : `não vi nenhum processo ou janela "${keys.join('/')}" em 6 s (pode ter aberto sob outro nome)` }
   }, async ({ path }) => (path ? `Executar o programa ${path}? (aberto por caminho, fora da lista de aplicativos instalados)` : null))
 
   // ------------------------------------------------------------------------- system (read only)

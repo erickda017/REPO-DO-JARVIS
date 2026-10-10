@@ -107,14 +107,24 @@ test('agent loop: creates a file for real, verifies it, and the status says so',
   const script = [
     JSON.stringify({ action: 'tool', tool: 'fs_write', args: { path: '%DESKTOP%\\anotações.txt', content: 'minhas notas' }, why: 'criar' }),
     '{"action":"final","text":"Criei o arquivo."}',
-    '{"verdict":"confere","reason":"existe e bate"}',
   ]
   const agent = createAgent({ router: fakeRouter(script), tools, access })
   const v = await done(agent, agent.run({ text: 'crie um txt chamado anotações na minha área de trabalho' }))
   assert.equal(v.result.status, 'concluido')
   assert.equal(readFileSync(join(home, 'Desktop', 'anotações.txt'), 'utf8'), 'minhas notas')
   assert.equal(v.steps[0].verified, true)
-  assert.equal(v.result.audit.verdict, 'confere')
+  assert.equal(v.result.audit, undefined, 'an action the tool already proved needs no second opinion')
+})
+
+test('agent loop: "then" closes a verified single action without a second model call; a failed or unverified tool does not use it', async () => {
+  const { home, access, tools } = await setup()
+  const calls = []
+  const agent = createAgent({ router: { runStream: (r) => { calls.push(r); return (async function* () { yield { start: true, provider: 'p', model: 'm' }; yield { delta: JSON.stringify({ action: 'tool', tool: 'fs_write', args: { path: '%DESKTOP%\\x.txt', content: 'oi' }, then: 'Criei o x.txt.' }) }; yield { done: true } })() }, run: async () => { throw new Error('no audit expected') } }, tools, access })
+  const v = await done(agent, agent.run({ text: 'crie um txt chamado x na minha área de trabalho' }))
+  assert.equal(calls.length, 1, 'one model call for the whole job')
+  assert.equal(calls[0].fast, true)
+  assert.deepEqual([v.result.status, v.result.text], ['concluido', 'Criei o x.txt.'])
+  assert.equal(readFileSync(join(home, 'Desktop', 'x.txt'), 'utf8'), 'oi')
 })
 
 test('agent loop: a dangerous action waits for confirmation; refusal leaves the file alone, approval deletes it', async () => {

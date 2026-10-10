@@ -85,7 +85,8 @@ export function createRouter({ registry, health, audit, clock = Date.now, cooldo
       return { list: only, skipped }
     }
     // req.tier prefers cheap or strong providers first; the others stay behind them as fallback.
-    const rank = (p) => (req.tier && p.tier !== req.tier ? 1 : 0)
+    // req.fast (the agent): start with the first API that is ready; the local model, slow on a CPU, only answers when no API can.
+    const rank = (p) => (req.tier && p.tier !== req.tier ? 1 : 0) + (req.fast && !p.external ? 2 : 0)
     return { list: out.sort((a, b) => rank(a) - rank(b) || a.priority - b.priority), skipped }
   }
 
