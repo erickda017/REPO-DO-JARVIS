@@ -1,4 +1,4 @@
-import { app, BrowserWindow, dialog, ipcMain, Menu, shell } from 'electron'
+import { app, BrowserWindow, dialog, globalShortcut, ipcMain, Menu, nativeImage, session, shell, Tray } from 'electron'
 import * as pty from '@lydell/node-pty'
 import { execFileSync } from 'node:child_process'
 import { readFileSync } from 'node:fs'
@@ -27,6 +27,10 @@ const MIME: Record<string, string> = {
 const APP_TOKEN = randomBytes(24).toString('hex')
 let bridge: ChildProcess | null = null
 let quitting = false
+let mainWin: BrowserWindow | null = null
+let tray: Tray | null = null
+// Started by Windows at login: stay in the tray, do not pop a window in the owner's face.
+const HIDDEN = process.argv.includes('--hidden')
 let ui: http.Server | null = null
 
 const portBusy = (port: number) =>
@@ -55,7 +59,7 @@ function userPaths(): Record<string, string> {
 async function clearOrphanBridge() {
   const r = await fetch(`http://127.0.0.1:${BRIDGE_PORT}/api/command/overview`, { headers: { 'x-jarvis-token': APP_TOKEN }, signal: AbortSignal.timeout(2500) }).catch(() => null)
   if (!r || r.status !== 401) return // not ours to touch: a hand-started bridge without a token answers 200
-  const ps = `Get-NetTCPConnection -LocalPort ${BRIDGE_PORT} -State Listen -ErrorAction SilentlyContinue | ForEach-Object { $p = Get-CimInstance Win32_Process -Filter ('ProcessId=' + $_.OwningProcess); if ($p.CommandLine -match 'server\.mjs') { Stop-Process -Id $p.ProcessId -Force } }`
+  const ps = `Get-NetTCPConnection -LocalPort ${BRIDGE_PORT} -State Listen -ErrorAction SilentlyContinue | ForEach-Object { $p = Get-CimInstance Win32_Process -Filter ('ProcessId=' + $_.OwningProcess); if ($p.CommandLine -match 'server\.mjs' -and -not (Get-Process -Id $p.ParentProcessId -ErrorAction SilentlyContinue)) { Stop-Process -Id $p.ProcessId -Force } }`
   await new Promise<void>((done) => execFile('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', ps], { windowsHide: true, timeout: 15000 }, () => done()))
   await new Promise((done) => setTimeout(done, 800))
 }
@@ -179,6 +183,15 @@ function registerIpc(getWin: () => BrowserWindow | null) {
   ipcMain.handle('projects:rescan', (_e, root: string) => (projectRoots().includes(root) ? scanSafe(root) : null))
 
   ipcMain.on('app:token', (e) => { e.returnValue = APP_TOKEN })
+  ipcMain.handle('app:getSettings', () => ({ ...appSettings(), packaged: app.isPackaged, hotkeyActive: hotkeyOn }))
+  ipcMain.handle('app:setSettings', (_e, p: Partial<AppSettings>) => {
+    const cur = appSettings()
+    const next: AppSettings = { autostart: typeof p.autostart === 'boolean' ? p.autostart : cur.autostart, closeToTray: typeof p.closeToTray === 'boolean' ? p.closeToTray : cur.closeToTray, hotkey: typeof p.hotkey === 'string' && /^[\w+]{1,40}$/.test(p.hotkey) ? p.hotkey : cur.hotkey }
+    writeJson(userFile('app.json'), next)
+    applyAutostart(next.autostart)
+    if (next.hotkey !== cur.hotkey) applyHotkey(next.hotkey)
+    return { ...next, packaged: app.isPackaged, hotkeyActive: hotkeyOn }
+  })
   ipcMain.handle('access:pick', async () => {
     const r = await dialog.showOpenDialog(getWin()!, { properties: ['openDirectory'], title: 'Escolha uma pasta que o agente poderá ler e alterar' })
     return r.canceled ? null : (r.filePaths[0] ?? null)
@@ -234,6 +247,56 @@ function registerIpc(getWin: () => BrowserWindow | null) {
   ipcMain.on('code:stop', stopTerm)
 }
 
+// ---------------------------------------------------------------------------------------------
+// Background life: start with Windows, live in the tray, global hotkey to listen.
+// ---------------------------------------------------------------------------------------------
+interface AppSettings { autostart: boolean; closeToTray: boolean; hotkey: string }
+const SETTINGS_DEFAULT: AppSettings = { autostart: true, closeToTray: true, hotkey: 'Control+Alt+J' }
+const appSettings = (): AppSettings => ({ ...SETTINGS_DEFAULT, ...readJson<Partial<AppSettings>>(userFile('app.json'), {}) })
+
+/** Registers (or removes) the Windows login item. Only for the installed build: a dev run must not register electron.exe. */
+function applyAutostart(on: boolean) {
+  if (!app.isPackaged) return
+  try { app.setLoginItemSettings({ openAtLogin: on, path: process.execPath, args: ['--hidden'] }) } catch { /* policy-restricted: the toggle simply has no effect */ }
+}
+
+function showWindow() {
+  if (!mainWin) return
+  if (mainWin.isMinimized()) mainWin.restore()
+  mainWin.show()
+  mainWin.focus()
+}
+
+/** Tells the page to start listening (hotkey, tray). The window is shown without stealing focus so the owner sees it is listening. */
+function triggerListen() {
+  if (!mainWin) return
+  if (!mainWin.isVisible()) mainWin.showInactive()
+  mainWin.webContents.send('voice:listen')
+}
+
+let hotkeyOn = ''
+function applyHotkey(accel: string) {
+  if (hotkeyOn) { try { globalShortcut.unregister(hotkeyOn) } catch { /* not registered */ } hotkeyOn = '' }
+  if (!accel) return
+  try { if (globalShortcut.register(accel, triggerListen)) hotkeyOn = accel } catch { /* invalid accelerator or taken by another program */ }
+}
+
+function createTray() {
+  const icon = [join(ROOT, 'icon.png'), join(ROOT, 'build', 'icon.png')].find((p) => existsSync(p))
+  tray = new Tray(icon ? nativeImage.createFromPath(icon).resize({ width: 16, height: 16 }) : nativeImage.createEmpty())
+  tray.setToolTip('J.A.R.V.I.S')
+  const menu = () => Menu.buildFromTemplate([
+    { label: 'Abrir JARVIS', click: showWindow },
+    { label: `Ouvir (${appSettings().hotkey.replace('Control', 'Ctrl')})`, click: triggerListen },
+    { type: 'separator' },
+    { label: 'Iniciar com o Windows', type: 'checkbox', checked: appSettings().autostart, click: (i) => { writeJson(userFile('app.json'), { ...appSettings(), autostart: i.checked }); applyAutostart(i.checked) } },
+    { label: 'Fechar a janela mantém em segundo plano', type: 'checkbox', checked: appSettings().closeToTray, click: (i) => writeJson(userFile('app.json'), { ...appSettings(), closeToTray: i.checked }) },
+    { type: 'separator' },
+    { label: 'Sair do JARVIS', click: () => { quitting = true; app.quit() } },
+  ])
+  tray.on('click', () => (mainWin?.isVisible() ? mainWin.hide() : showWindow()))
+  tray.on('right-click', () => tray?.popUpContextMenu(menu()))
+}
 async function createWindow() {
   const win = new BrowserWindow({
     width: 1480,
@@ -247,8 +310,11 @@ async function createWindow() {
     titleBarOverlay: { color: '#02060a', symbolColor: '#7fe8ff', height: 40 },
     webPreferences: { contextIsolation: true, nodeIntegration: false, sandbox: true, preload: join(__dirname, 'preload.cjs') },
   })
+  mainWin = win
   registerIpc(() => win)
-  win.once('ready-to-show', () => win.show())
+  win.once('ready-to-show', () => { if (!HIDDEN) win.show() })
+  // Closing the window hides it to the tray (the hidden-icons area) unless the owner turned that off or is quitting.
+  win.on('close', (e) => { if (!quitting && appSettings().closeToTray) { e.preventDefault(); win.hide() } })
   // APP_LOG=<file> mirrors the page's console (errors included) to a file, for headless verification runs.
   if (process.env.APP_LOG) {
     const log = process.env.APP_LOG
@@ -280,15 +346,25 @@ async function createWindow() {
 
 if (!app.requestSingleInstanceLock()) app.quit()
 else {
+  app.on('second-instance', () => showWindow())
+  app.on('before-quit', () => { quitting = true })
   app.whenReady().then(async () => {
     Menu.setApplicationMenu(null)
+    // The microphone is granted only to this app's own page.
+    const own = (url: string) => { try { return new URL(url).origin === (DEV_URL ? new URL(DEV_URL).origin : `http://127.0.0.1:${uiPort}`) } catch { return false } }
+    session.defaultSession.setPermissionRequestHandler((wc, perm, cb) => cb(perm === 'media' && own(wc.getURL())))
+    session.defaultSession.setPermissionCheckHandler((wc, perm) => perm === 'media' && Boolean(wc && own(wc.getURL())))
+    applyAutostart(appSettings().autostart)
     await startBridge()
     if (!DEV_URL) await startUi()
     await createWindow()
+    createTray()
+    applyHotkey(appSettings().hotkey)
   })
   app.on('window-all-closed', () => app.quit())
   app.on('will-quit', () => {
     quitting = true
+    globalShortcut.unregisterAll()
     setTimeout(() => app.exit(0), 3000).unref() // never let a child that will not die keep the app open
     stopTerm()
     bridge?.kill()

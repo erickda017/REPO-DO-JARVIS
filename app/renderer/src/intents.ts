@@ -4,6 +4,7 @@ export type Intent =
   | { kind: 'createTask'; title: string }
   | { kind: 'timer'; seconds: number }
   | { kind: 'media'; url: string; mediaType: 'image' | 'video' }
+  | { kind: 'listen' }
   | { kind: 'chat' }
 
 const URL_RE = /https?:\/\/[^\s)"'<>]+/gi
@@ -38,6 +39,9 @@ export function parseIntent(raw: string): Intent {
     const seconds = /^h/.test(unit) ? n * 3600 : /^(min|m$|minuto)/.test(unit) ? n * 60 : n
     if (seconds > 0 && seconds <= 86400) return { kind: 'timer', seconds }
   }
+
+  // The listening command: after it the next thing said is turned into text and sent like any typed message.
+  if (/^(?:jarvis[,!\s]+)?(?:ouv(?:ir|e|a)|escut(?:ar|e|a)|modo (?:de )?(?:escuta|voz)|ativar (?:o )?microfone|me (?:ou[cç]a|escute))[\s!.]*$/i.test(text)) return { kind: 'listen' }
 
   const create = text.match(/^(?:criar|crie|nova|adicionar|adicione)\s+tarefa\s*[:\-]?\s*(.+)$/i)
   if (create) return { kind: 'createTask', title: create[1].trim() }

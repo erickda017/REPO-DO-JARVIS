@@ -19,8 +19,10 @@ export const GROUPS = {
   apps: 'Abrir aplicativos instalados',
   processes: 'Encerrar processos e aplicativos (sempre com confirmação)',
   commands: 'Executar comandos/scripts do PowerShell (sempre com confirmação)',
+  dev: 'Desenvolvimento: rodar testes/builds do projeto e servidores locais (executa código do projeto, sempre com confirmação)',
+  screen: 'Capturar a tela (o arquivo pode mostrar dados privados)',
 }
-const DEFAULT_TOOLS = { files: true, web: true, system: true, apps: false, processes: false, commands: false }
+const DEFAULT_TOOLS = { files: true, web: true, system: true, apps: false, processes: false, commands: false, dev: false, screen: false }
 
 /**
  * What the owner has allowed the agent to touch, saved in data/agent-access.json:

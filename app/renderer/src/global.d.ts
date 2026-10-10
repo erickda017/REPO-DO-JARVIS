@@ -3,6 +3,7 @@ import type { AgentEvent, Metrics } from '../../electron/transcripts.ts'
 import type { IaMode, IaStatus } from '../../electron/ia.ts'
 
 export type Engine = 'claude' | 'agent' | 'shell'
+export interface AppSettings { autostart: boolean; closeToTray: boolean; hotkey: string; packaged: boolean; hotkeyActive: string }
 
 declare global {
   interface Window {
@@ -16,6 +17,12 @@ declare global {
         rescan: (root: string) => Promise<ProjectGraph | null>
       }
       access: { pick: () => Promise<string | null> }
+      app: {
+        getSettings: () => Promise<AppSettings>
+        setSettings: (p: Partial<Pick<AppSettings, 'autostart' | 'closeToTray' | 'hotkey'>>) => Promise<AppSettings>
+        /** Fired by the global hotkey and the tray menu: start listening now. */
+        onListen: (cb: () => void) => () => void
+      }
       ia: {
         status: () => Promise<IaStatus>
         start: (mode: IaMode) => Promise<IaStatus>

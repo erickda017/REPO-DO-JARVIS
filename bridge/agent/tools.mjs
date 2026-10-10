@@ -8,6 +8,8 @@ import { bigFiles, cleanupCandidates, folderSizeOf, largest } from './diskscan.m
 import { cleanTempFiles } from './cleantemp.mjs'
 import { classify, closeProcess, listProcesses, processInfo } from './procs.mjs'
 import { isWindows, ps, psJson, q } from './winps.mjs'
+import { buildDevTools } from './devtools.mjs'
+import { buildProfile } from './perfil.mjs'
 
 /**
  * The agent's tools. Each one declares its permission group, its risk and, for risky ones, the sentence the owner is
@@ -32,7 +34,7 @@ const htmlToText = (html) =>
 const DENY_COMMAND = /(format-volume|\bformat\s+[a-z]:|diskpart|bcdedit|cipher\s+\/w|vssadmin|wbadmin|reg\s+(delete|add)\s+hk(lm|cr)|set-mppreference|add-mppreference|disable-windowsoptionalfeature|remove-item[^|;]*-recurse[^|;]*\s[a-z]:\\?\s*$|stop-service|sc\s+(stop|delete|config)|net\s+user|schtasks\s+\/(delete|create)|invoke-expression|iex\b|downloadstring|invoke-webrequest[^|;]*\|\s*iex|netsh\s+(advfirewall|firewall)|takeown|icacls[^|;]*\/grant|shutdown|restart-computer|stop-computer)/i
 
 /** @returns {Record<string, any>} the tool table, closed over the shared services */
-export function buildTools({ access, monitor, profiles, env = process.env }) {
+export function buildTools({ access, monitor, profiles, env = process.env, dataDir, memory = null, profileFile }) {
   const T = {}
   const def = (name, group, risk, desc, params, run, confirm) => (T[name] = { name, group, risk, desc, params, run, confirm })
 
@@ -111,7 +113,7 @@ export function buildTools({ access, monitor, profiles, env = process.env }) {
     const p = await access.resolveInside(path)
     if (yes(overwrite) && existsSync(p)) return `Sobrescrever o arquivo existente ${path}? O conteúdo atual será perdido (não vai para a Lixeira).`
     // A new script/shortcut can run later (Startup folders, double-click): always ask.
-    if (/.(bat|cmd|ps1|psm1|vbs|vbe|js|jse|wsf|lnk|exe|scr|msi|reg|hta)$/i.test(p)) return `Criar o arquivo executável ${p}? Ele pode rodar código se for aberto.`
+    if (/\.(bat|cmd|ps1|psm1|vbs|vbe|js|jse|wsf|lnk|exe|scr|msi|reg|hta)$/i.test(p)) return `Criar o arquivo executável ${p}? Ele pode rodar código se for aberto.`
     return null
   })
 
@@ -284,7 +286,20 @@ export function buildTools({ access, monitor, profiles, env = process.env }) {
     return `Fechar para o modo game: ${names.join(', ') || ids.join(', ')}? Cada um é fechado do jeito normal, nada é forçado, e trabalho não salvo neles pode ser perdido.`
   })
   def('profile_status', 'system', 'read', 'Estado do modo game e RAM liberada até agora.', {}, async () => ({ data: await profiles.status() }))
-  def('profile_stop', 'processes', 'write', 'Encerra o modo game e lista o que foi fechado para reabrir.', {}, async () => ({ data: await profiles.stop(), verified: true }))
+  def('profile_stop', 'processes', 'write', 'Encerra o modo game e lista o que foi fechado para reabrir.', {}, async () => ({ data: await profiles.stop(), verified: null, evidence: 'o modo foi encerrado; reabrir os programas listados é com o usuário' }))
+
+  // ------------------------------------------------------------------------- development + screen (devtools.mjs)
+  Object.assign(T, buildDevTools({ access, env, dataDir }))
+
+  // ------------------------------------------------------------------------- memory + self-profile
+  if (memory) {
+    def('memory_remember', 'system', 'write', 'Guarda na memória operacional algo aprendido: kind = fact (confirmado), hypothesis (NÃO confirmado), decision, error ou solution. Nunca guarde senhas ou chaves.', { kind: 'fact|hypothesis|decision|error|solution', text: 'o que lembrar (curto)', confidence: 'confirmed|probable|unverified', tags: 'lista de palavras-chave' }, async ({ kind, text, confidence, tags }) => {
+      const e = await memory.remember({ kind, text, confidence, tags: [].concat(tags ?? []), source: 'agente' })
+      return { data: e, verified: true, evidence: `guardado  (, )` }
+    })
+    def('memory_recall', 'system', 'read', 'Consulta a memória operacional por palavras-chave (erros já vistos, soluções, decisões).', { query: 'palavras-chave', limit: 'máx. resultados (padrão 6)' }, async ({ query, limit = 6 }) => ({ data: { items: await memory.recall(String(query ?? ''), { limit: Number(limit) || 6 }) } }))
+  }
+  def('jarvis_perfil', 'system', 'read', 'Perfil completo do JARVIS: personalidade e TODAS as capacidades (texto) mais a tabela ao vivo de ferramentas e o que está ligado. Use quando perguntarem o que você sabe/pode fazer.', {}, async () => ({ data: { profile: buildProfile({ tools: T, access, file: profileFile }) } }))
 
   return T
 }

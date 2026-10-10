@@ -19,6 +19,18 @@ import { ProviderError, RouteError } from './errors.mjs'
  */
 export function createRouter({ registry, health, audit, clock = Date.now, cooldownMs = 30_000 }) {
   const cooldown = new Map() // id -> until (ms)
+  // In-memory metrics per provider: calls, successes, latency, tokens and (when the config has a price) estimated spend.
+  const stats = new Map()
+  const note = (p, ok, latencyMs, usage) => {
+    const s = stats.get(p.id) ?? { provider: p.id, calls: 0, ok: 0, failed: 0, latencyMs: 0, inputTokens: 0, outputTokens: 0, estUSD: 0 }
+    s.calls++
+    if (ok) { s.ok++; s.latencyMs += latencyMs ?? 0 } else s.failed++
+    s.inputTokens += usage?.inputTokens ?? 0
+    s.outputTokens += usage?.outputTokens ?? 0
+    if (p.price) s.estUSD += ((usage?.inputTokens ?? 0) * p.price.in + (usage?.outputTokens ?? 0) * p.price.out) / 1e6
+    stats.set(p.id, s)
+  }
+  const snapshotStats = () => [...stats.values()].map((s) => ({ ...s, avgLatencyMs: s.ok ? Math.round(s.latencyMs / s.ok) : null, successRate: s.calls ? +(s.ok / s.calls).toFixed(2) : null, estUSD: +s.estUSD.toFixed(4) }))
   // An empty account will not refill in a minute: keep it out of rotation for 10 min, so traffic flows to the next provider.
   const SKIPPABLE = new Set(['auth', 'model_not_found', 'bad_response', 'unconfigured'])
   const coolFor = (e) => (e.kind === 'quota' ? 10 * 60_000 : e.kind === 'auth' ? 5 * 60_000 : cooldownMs)
@@ -56,7 +68,9 @@ export function createRouter({ registry, health, audit, clock = Date.now, cooldo
       const only = out.filter((p) => p.id === req.providerId)
       return { list: only, skipped }
     }
-    return { list: out.sort((a, b) => a.priority - b.priority), skipped }
+    // req.tier prefers cheap or strong providers first; the others stay behind them as fallback.
+    const rank = (p) => (req.tier && p.tier !== req.tier ? 1 : 0)
+    return { list: out.sort((a, b) => rank(a) - rank(b) || a.priority - b.priority), skipped }
   }
 
   /** Validation + provider selection shared by run and runStream. */
@@ -96,11 +110,13 @@ export function createRouter({ registry, health, audit, clock = Date.now, cooldo
       try {
         const out = await p.adapter.infer({ model, prompt: req.prompt, messages: req.messages, system: req.system, maxTokens: req.maxTokens })
         audit?.record('ai.infer', { provider: p.id, model, ok: true, promptChars: req.prompt.length, latencyMs: out.latencyMs })
+        note(p, true, out.latencyMs, out.usage)
         attempts.push({ provider: p.id, ok: true })
         return { ...out, attempts }
       } catch (err) {
         const e = err instanceof ProviderError ? err : new ProviderError('network', String(err?.message ?? err), { provider: p.id })
         health?.pushError(p.id, e)
+        note(p, false)
         if (e.retryable || SKIPPABLE.has(e.kind)) cooldown.set(p.id, clock() + coolFor(e))
         attempts.push({ provider: p.id, error: e.toJSON() })
         audit?.record('ai.infer', { provider: p.id, model, ok: false, kind: e.kind, promptChars: req.prompt.length })
@@ -152,6 +168,7 @@ export function createRouter({ registry, health, audit, clock = Date.now, cooldo
           yield { delta: out.text }
         }
         audit?.record('ai.infer', { provider: p.id, model, ok: true, stream: true, promptChars: req.prompt.length })
+        note(p, true, clock() - t0, usage)
         attempts.push({ provider: p.id, ok: true })
         yield { done: true, usage, attempts, provider: p.id, model }
         return
@@ -159,6 +176,7 @@ export function createRouter({ registry, health, audit, clock = Date.now, cooldo
         if (req.signal?.aborted) throw new RouteError('cancelled', attempts) // the caller left: never start another provider
         const e = err instanceof ProviderError ? err : new ProviderError('network', String(err?.message ?? err), { provider: p.id })
         health?.pushError(p.id, e)
+        note(p, false)
         if (e.retryable || SKIPPABLE.has(e.kind)) cooldown.set(p.id, clock() + coolFor(e))
         attempts.push({ provider: p.id, error: e.toJSON() })
         audit?.record('ai.infer', { provider: p.id, model, ok: false, stream: true, kind: e.kind, promptChars: req.prompt.length })
@@ -257,5 +275,5 @@ export function createRouter({ registry, health, audit, clock = Date.now, cooldo
     return { ...out, routing }
   }
 
-  return { run, runStream, decide, smartRun, eligible }
+  return { run, runStream, decide, smartRun, eligible, stats: snapshotStats }
 }

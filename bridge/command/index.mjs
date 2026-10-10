@@ -14,6 +14,7 @@ import { createSettings } from './settings.mjs'
 import { dpapi } from './vault.mjs'
 import { createOpenAiApi } from './openaiApi.mjs'
 import { createAccess } from '../agent/access.mjs'
+import { createMemory } from '../agent/memoria.mjs'
 import { createMonitor } from '../agent/monitor.mjs'
 import { createProfiles } from '../agent/profiles.mjs'
 import { buildTools } from '../agent/tools.mjs'
@@ -41,7 +42,8 @@ export function createCommand({ config = loadConfig(), fetch: fetchImpl = fetch,
   const access = createAccess({ file: persist ? join(config.dataDir, 'agent-access.json') : null, env, deny: persist ? [config.dataDir] : [] })
   const monitor = createMonitor({ clock })
   const profiles = createProfiles({ file: persist ? join(config.dataDir, 'profile-state.json') : null, monitor, clock })
-  const tools = buildTools({ access, monitor, profiles, env })
+  const memory = createMemory({ file: persist ? join(config.dataDir, 'memory.jsonl') : null })
+  const tools = buildTools({ access, monitor, profiles, env, dataDir: persist ? config.dataDir : undefined, memory })
   const agent = createAgent({ router, tools, access, audit, clock })
   const alerts = []
   /** Low-space warnings: one per drive per 12 h, only when a drive is under 10 % or 15 GB free. */

@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { ArrowUp, Lock, Volume2, Wallet } from 'lucide-react'
+import { ArrowUp, Lock, Mic, MicOff, Volume2, Wallet } from 'lucide-react'
 import { useApp } from '../store.ts'
 
 const HINTS = ['como estão as IAs?', 'minhas tarefas', 'timer de 5 min']
@@ -7,7 +7,7 @@ const HINTS = ['como estão as IAs?', 'minhas tarefas', 'timer de 5 min']
 /** One rounded pill: the three options sit inside as quiet icon toggles; suggestions appear only while it is empty and focused. */
 export function CommandBar({ large = false }: { large?: boolean }) {
   const [text, setText] = useState('')
-  const { send, busy, sensitive, spend, speak, toggle } = useApp()
+  const { send, busy, sensitive, spend, speak, toggle, listen, listenLevel, startListen, stopListen } = useApp()
   const submit = () => {
     if (busy || !text.trim()) return // keep what was typed while an agent task is running
     void send(text)
@@ -39,6 +39,9 @@ export function CommandBar({ large = false }: { large?: boolean }) {
             }
           }}
         />
+        <button className="mic" data-state={listen} style={{ '--lvl': Math.min(1, listenLevel * 14) } as React.CSSProperties} onClick={() => (listen === 'idle' ? void startListen() : stopListen())} disabled={busy && listen === 'idle'} aria-pressed={listen !== 'idle'} title={listen === 'idle' ? 'Falar (Ctrl+Alt+J)' : 'Parar de ouvir'} aria-label={listen === 'idle' ? 'Falar com o JARVIS' : 'Parar de ouvir'}>
+          {listen === 'idle' ? <Mic size={18} /> : <MicOff size={18} />}
+        </button>
         <button className="send" onClick={submit} disabled={busy || !text.trim()} aria-label="Enviar">
           {busy ? <span className="spinner" aria-hidden /> : <ArrowUp size={18} />}
         </button>

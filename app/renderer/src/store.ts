@@ -2,6 +2,7 @@ import { create } from 'zustand'
 import { api, ApiError, speakViaBridge, type AgentJob, type AuditEntry, type ChatTurn, type Overview, type VoiceStatus } from './api.ts'
 import { entityForAudit } from './neural/graph.ts'
 import { mediaUrls, parseIntent } from './intents.ts'
+import { listenOnce } from './voice/listen.ts'
 
 import type { ProjectGraph } from '../../electron/projects.ts'
 import type { AgentEvent, Metrics } from '../../electron/transcripts.ts'
@@ -35,6 +36,11 @@ interface State {
   spend: boolean
   speak: boolean
   caption: { id: number; text: string } | null
+  /** Microphone state: idle -> listening (waiting for speech) -> hearing -> transcribing -> idle. */
+  listen: 'idle' | 'listening' | 'hearing' | 'transcribing'
+  listenLevel: number
+  startListen: () => Promise<void>
+  stopListen: () => void
   job: AgentJob | null
   dismissJob: () => void
   confirmJob: (approve: boolean) => Promise<void>
@@ -92,6 +98,7 @@ async function askAgent(history: ChatTurn[], sensitive: boolean, spend: boolean,
 
 const seenAlerts = new Set<string>()
 const liveCaption = -1 // id of the subtitle that follows the answer as it streams in
+let listenCtrl: AbortController | null = null
 let refreshing = false, polling = false, probing = false, dismissedJob = ''
 let seq = 0
 const MAX_CARDS = 7
@@ -113,6 +120,24 @@ export const useApp = create<State>((set, get) => ({
   spend: false,
   speak: false,
   caption: null,
+  listen: 'idle',
+  listenLevel: 0,
+  startListen: async () => {
+    if (get().listen !== 'idle' || get().busy) return
+    listenCtrl = new AbortController()
+    set({ listen: 'listening', listenLevel: 0, caption: { id: liveCaption, text: 'Ouvindo… pode falar.' } })
+    const r = await listenOnce({
+      signal: listenCtrl.signal,
+      onLevel: (v) => set({ listenLevel: v }),
+      onSpeech: () => set({ listen: 'hearing', caption: { id: liveCaption, text: 'Estou te ouvindo…' } }),
+      onProcessing: () => set({ listen: 'transcribing', caption: { id: liveCaption, text: 'Transcrevendo…' } }),
+    })
+    listenCtrl = null
+    set((s) => ({ listen: 'idle', listenLevel: 0, ...(s.caption?.id === liveCaption ? { caption: null } : {}) }))
+    if (r.ok) void get().send(r.text)
+    else if (r.code !== 'cancelled') get().addCard('Microfone', { type: 'text', text: r.error })
+  },
+  stopListen: () => listenCtrl?.abort(),
   job: null,
   dismissJob: () => { dismissedJob = get().job?.id ?? ''; set({ job: null }) },
   confirmJob: async (approve) => {
@@ -232,6 +257,11 @@ export const useApp = create<State>((set, get) => ({
     const say = (m: Message) => set((s) => ({ messages: [...s.messages, m] }))
     say({ role: 'user', text })
     const intent = parseIntent(text)
+    if (intent.kind === 'listen') {
+      say({ role: 'assistant', text: 'Estou ouvindo. Fale agora.' })
+      void get().startListen()
+      return
+    }
     set({ busy: true })
     try {
       switch (intent.kind) {

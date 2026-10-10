@@ -62,10 +62,12 @@ export function App() {
     void refresh().then(probe)
     void pollAudit()
     void loadProjects()
+    // Global hotkey / tray menu: start listening.
+    const offListen = window.jarvis?.app.onListen(() => void useApp.getState().startListen())
     const a = setInterval(() => void refresh(), 4000)
     const b = setInterval(() => void pollAudit(), 1500)
     const c = setInterval(() => void probe(), 60000)
-    return () => (clearInterval(a), clearInterval(b), clearInterval(c))
+    return () => (clearInterval(a), clearInterval(b), clearInterval(c), offListen?.())
   }, [refresh, pollAudit, probe, loadProjects])
 
   return (

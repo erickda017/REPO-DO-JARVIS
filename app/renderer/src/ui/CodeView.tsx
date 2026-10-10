@@ -7,6 +7,8 @@ import { useApp } from '../store.ts'
 import type { Engine } from '../global.d.ts'
 
 const fmt = (n: number) => (n >= 1e6 ? `${(n / 1e6).toFixed(2)} M` : n >= 1e3 ? `${(n / 1e3).toFixed(1)} k` : String(n))
+/** Leave alternate screen and switch off mouse/paste/focus modes a full-screen program may have left on. */
+const LEAVE_TUI = '\x1b[?1049l\x1b[?1000l\x1b[?1002l\x1b[?1003l\x1b[?1006l\x1b[?2004l\x1b[?1004l\x1b[?25h\x1b[0m'
 const base = (p: string) => p.split(/[\\/]/).slice(-2).join('/')
 
 /**
@@ -43,7 +45,7 @@ export function CodeView() {
     fit.current = f
     const off = [
       jv.code.onData((d) => t.write(d)),
-      jv.code.onExit((c) => { t.write(`\r\n\x1b[90m[processo encerrado, código ${c}]\x1b[0m\r\n`); setRunning(false) }),
+      jv.code.onExit((c) => { t.write(LEAVE_TUI + `\r\n\x1b[90m[processo encerrado, código ${c}]\x1b[0m\r\n`); setRunning(false) }),
     ]
     const dispose = t.onData((d) => jv.code.write(d))
     const ro = new ResizeObserver(() => { try { f.fit(); jv.code.resize(t.cols, t.rows) } catch { /* hidden */ } })
@@ -57,12 +59,12 @@ export function CodeView() {
   const start = async () => {
     setErr('')
     const t = term.current!
-    t.clear()
+    t.reset() // not clear(): a TUI (Claude Code) leaves the alternate screen, mouse and paste modes on, and they would leak into the next terminal
     fit.current?.fit()
     const r = await jv.code.start({ engine, cwd: root, cols: t.cols, rows: t.rows })
     if (r.ok) { setRunning(true); t.focus() } else setErr(r.error ?? 'Não foi possível iniciar.')
   }
-  const stop = () => { jv.code.stop(); setRunning(false) }
+  const stop = () => { jv.code.stop(); setRunning(false); term.current?.write(LEAVE_TUI) }
   const usable = engine === 'shell' || (engine === 'claude' && engines?.claude) || (engine === 'agent' && engines?.agent)
   const hasMetrics = engine === 'claude'
   const toolList = metrics ? Object.entries(metrics.tools).sort((a, b) => b[1] - a[1]) : []

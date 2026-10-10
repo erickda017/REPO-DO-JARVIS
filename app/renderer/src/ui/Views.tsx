@@ -1,5 +1,6 @@
-﻿import { useEffect, useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { Check, Pause, Play, RefreshCw, Trash2, Square } from 'lucide-react'
+import type { AppSettings } from '../global.d.ts'
 import { api, ApiError, type Check as CheckT, type KeyStatus, type Priority, type ProviderView, type TaskState, type VoiceTest } from '../api.ts'
 import { useApp } from '../store.ts'
 import { CommandBar } from './CommandBar.tsx'
@@ -247,6 +248,37 @@ export function VoiceView() {
         {test && <p className="ok-text small">Chave válida · {test.voices.length} vozes · {test.latencyMs} ms</p>}
         {msg && <p className="err small" role="alert">{msg}</p>}
       </div>
+      <MicAndBackground />
+    </div>
+  )
+}
+
+/** Microphone (listening command) and background behaviour of the installed app: start with Windows, live in the tray. */
+function MicAndBackground() {
+  const jv = window.jarvis
+  const listen = useApp((s) => s.listen)
+  const startListen = useApp((s) => s.startListen)
+  const stopListen = useApp((s) => s.stopListen)
+  const voice = useApp((s) => s.voice)
+  const [cfg, setCfg] = useState<AppSettings | null>(null)
+  useEffect(() => { void jv?.app.getSettings().then(setCfg) }, [jv])
+  if (!jv) return null
+  const set = (p: Parameters<typeof jv.app.setSettings>[0]) => void jv.app.setSettings(p).then(setCfg)
+  return (
+    <div className="panel form" style={{ marginTop: 16 }}>
+      <h2>Microfone e segundo plano</h2>
+      <p className="dim small">Diga `ouvir` na caixa de comando, clique no microfone ou use <b>{cfg?.hotkey.replace('Control', 'Ctrl') ?? 'Ctrl+Alt+J'}</b> (funciona com a janela escondida). O que você falar vira texto e é enviado como qualquer mensagem. O microfone só liga durante a escuta e desliga sozinho depois de uma pausa. A transcrição usa a chave do ElevenLabs acima: o áudio dessa frase sai deste PC para lá.</p>
+      <div className="actions">
+        <button className="btn primary" onClick={() => (listen === 'idle' ? void startListen() : stopListen())}>{listen === 'idle' ? 'Testar microfone' : 'Parar'}</button>
+        <span className="dim small">{voice?.configured ? 'Transcrição pronta.' : 'Falta a chave do ElevenLabs para transcrever.'}</span>
+      </div>
+      {cfg && (
+        <>
+          <label className="check"><input type="checkbox" checked={cfg.autostart} disabled={!cfg.packaged} onChange={(e) => set({ autostart: e.target.checked })} /> Iniciar junto com o Windows (começa escondido na bandeja){!cfg.packaged && <span className="dim small"> — só no app instalado</span>}</label>
+          <label className="check"><input type="checkbox" checked={cfg.closeToTray} onChange={(e) => set({ closeToTray: e.target.checked })} /> Ao fechar a janela, continuar em segundo plano (ícones ocultos). Para sair de verdade: bandeja › Sair.</label>
+          {cfg.hotkey && !cfg.hotkeyActive && <p className="err small">O atalho {cfg.hotkey} não pôde ser registrado (outro programa o usa). Mude em app.json ou use o microfone.</p>}
+        </>
+      )}
     </div>
   )
 }
