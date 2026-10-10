@@ -174,12 +174,19 @@ export function createRouter({ registry, health, audit, clock = Date.now, cooldo
       }
       let started = false
       let usage
-      const call = { model, prompt: req.prompt, messages: req.messages, system: req.system, maxTokens: req.maxTokens, signal: req.signal }
+      // A hung API must not hold a quick request for a minute: an external provider that sends no text within `firstTokenMs`
+      // (fast requests only; a local model on a CPU is allowed its time) is dropped and the next one is tried.
+      const ctrl = new AbortController()
+      const relay = () => ctrl.abort()
+      req.signal?.addEventListener('abort', relay, { once: true })
+      let slow = false
+      const watchdog = req.fast && p.external ? setTimeout(() => { slow = true; ctrl.abort() }, req.firstTokenMs ?? 12_000) : null
+      const call = { model, prompt: req.prompt, messages: req.messages, system: req.system, maxTokens: req.maxTokens, signal: ctrl.signal }
       try {
         if (typeof p.adapter.stream === 'function') {
           for await (const ev of p.adapter.stream(call)) {
             if (ev.delta) {
-              if (!started) { started = true; yield { start: true, provider: p.id, model } }
+              if (!started) { started = true; clearTimeout(watchdog); yield { start: true, provider: p.id, model } }
               yield { delta: ev.delta }
             } else if (ev.usage) usage = ev.usage
           }
@@ -198,7 +205,7 @@ export function createRouter({ registry, health, audit, clock = Date.now, cooldo
         return
       } catch (err) {
         if (req.signal?.aborted) throw new RouteError('cancelled', attempts) // the caller left: never start another provider
-        const e = err instanceof ProviderError ? err : new ProviderError('network', String(err?.message ?? err), { provider: p.id })
+        const e = slow && !started ? new ProviderError('timeout', `sem resposta em ${(req.firstTokenMs ?? 12_000) / 1000} s`, { provider: p.id }) : err instanceof ProviderError ? err : new ProviderError('network', String(err?.message ?? err), { provider: p.id })
         health?.pushError(p.id, e)
         note(p, false)
         if (e.retryable || SKIPPABLE.has(e.kind)) cooldown.set(coolKey(p, model, e), clock() + coolFor(e))
@@ -206,6 +213,9 @@ export function createRouter({ registry, health, audit, clock = Date.now, cooldo
         audit?.record('ai.infer', { provider: p.id, model, ok: false, stream: true, kind: e.kind, promptChars: req.prompt.length })
         if (started) { yield { error: e.toJSON(), partial: true, attempts }; return }
         if ((!e.retryable && !SKIPPABLE.has(e.kind)) || !p.allowFallback) throw new RouteError(`${p.id} failed: ${e.message}`, attempts)
+      } finally {
+        clearTimeout(watchdog)
+        req.signal?.removeEventListener('abort', relay)
       }
     }
     const last = [...attempts].reverse().find((a) => a.error)?.error

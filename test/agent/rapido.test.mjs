@@ -8,5 +8,7 @@ test('quickAction: direct "open X" becomes a tool call; anything compound, vague
   assert.equal(quickAction('abrir o bloco de notas.').args.name, 'bloco de notas')
   assert.deepEqual(quickAction('abra o youtube'), { tool: 'url_open', args: { url: 'https://www.youtube.com' }, then: 'Abri o youtube.' })
   assert.equal(quickAction('abre github.com/foo').args.url, 'https://github.com/foo')
+  assert.equal(quickAction('abre o yt music').args.url, 'https://music.youtube.com')
+  assert.equal(quickAction('abrir o YouTube Music').args.url, 'https://music.youtube.com')
   for (const no of ['abra o chrome e pesquise gatos', 'abra a pasta downloads', 'abra o arquivo notas.txt', 'liste meus arquivos', 'o que é abrir uma conta?', 'abra', 'abra o chrome, depois o discord', '']) assert.equal(quickAction(no), null, no)
 })
