@@ -24,6 +24,7 @@ import { buildTools } from '../agent/tools.mjs'
 import { createAgent } from '../agent/agent.mjs'
 import { createConnectors } from '../agent/conectores.mjs'
 import { createGoogleAuth } from '../agent/google.mjs'
+import { createMcp } from '../agent/mcp.mjs'
 
 /**
  * Wires the command centre together. Every dependency that touches the world
@@ -36,10 +37,11 @@ export function createCommand({ config = loadConfig(), fetch: fetchImpl = fetch,
   let registry
   let connectors = null
   let google = null
-  const settings = createSettings({ file: persist ? join(config.dataDir, 'settings.json') : null, getRegistry: () => registry, baseEnv: env, audit, vault, getExtraNames: () => [...(connectors?.secretNames() ?? []), ...(google?.secretNames() ?? [])] })
+  let mcp = null
+  const settings = createSettings({ file: persist ? join(config.dataDir, 'settings.json') : null, getRegistry: () => registry, baseEnv: env, audit, vault, getExtraNames: () => [...(connectors?.secretNames() ?? []), ...(google?.secretNames() ?? []), ...(mcp?.secretNames() ?? [])] })
   registry = createRegistry(config.providers, { fetch: fetchImpl, env: settings.env() })
   const health = createHealth({ registry, audit, clock })
-  const router = createRouter({ registry, health, audit, clock })
+  const router = createRouter({ registry, health, audit, clock, allowLocal: () => settings.flags.get('apisOnly') !== true }) // owner's switch: use only the APIs, never the local model
   const services = createServiceMonitor({ services: config.services, fetch: fetchImpl, clock, audit })
   const projects = createProjectMonitor({ projects: config.projects, services })
   const tasks = createTaskStore({ file: persist ? join(config.dataDir, 'tasks.json') : null, clock, audit })
@@ -55,6 +57,8 @@ export function createCommand({ config = loadConfig(), fetch: fetchImpl = fetch,
   google = createGoogleAuth({ file: persist ? join(config.dataDir, 'google.json') : null, settings, fetch: fetchImpl, audit, clock })
   connectors = createConnectors({ file: persist ? join(config.dataDir, 'connectors.json') : null, settings, fetch: fetchImpl, audit, clock, google })
   connectors.attach(tools) // a connected service's tools appear in (and leave) the agent's table as the owner switches it
+  mcp = createMcp({ file: persist ? join(config.dataDir, 'mcp.json') : null, settings, audit, clock, fetch: fetchImpl, cwd: persist ? join(config.dataDir, 'mcp-work') : null })
+  mcp.attach(tools) // MCP tools too: only what the owner switched on, tool by tool
   const agent = createAgent({ router, tools, access, audit, flags: settings.flags, persona: personaText(), clock })
   const alerts = []
   /** Low-space warnings: one per drive per 12 h, only when a drive is under 10 % or 15 GB free. */
@@ -75,7 +79,7 @@ export function createCommand({ config = loadConfig(), fetch: fetchImpl = fetch,
   const openai = createOpenAiApi({ router, registry, file: persist ? join(config.dataDir, 'router-token.txt') : null, flags: settings.flags, audit })
   const missions = createOrchestrator({ router, agent, access, memory, audit, dir: persist ? join(config.dataDir, 'missions') : null, clock, hooks: { created: (id, goal) => genui?.forMission(id, goal) } })
   genui = createGenUi({ tools, access, flags: settings.flags, router, missions, monitor, audit, dir: persist ? join(config.dataDir, 'ui') : null, clock })
-  const parts = { openai, config, registry, health, router, services, projects, tasks, timer, audit, voice, settings, access, monitor, profiles, agent, alerts, missions, memory, genui, connectors, google }
+  const parts = { openai, config, registry, health, router, services, projects, tasks, timer, audit, voice, settings, access, monitor, profiles, agent, alerts, missions, memory, genui, connectors, google, mcp }
   const api = createApi({ ...parts, allowNoOrigin })
   if (config.autoStartMonitors) services.start()
   return { ...parts, api }

@@ -119,6 +119,35 @@ function RouterDoor() {
   )
 }
 
+/** One switch: answers, the agent, missions and panels use only the APIs and never the local model (it can also be shut down to free the RAM). */
+export function ApisOnlyToggle() {
+  const on = useApp((s) => s.overview?.apisOnly === true)
+  const refresh = useApp((s) => s.refresh)
+  const [err, setErr] = useState('')
+  const flip = async (v: boolean) => {
+    setErr('')
+    try {
+      await api.apisOnly(v)
+      const jv = window.jarvis
+      if (v && jv?.ia && window.confirm('Modo só APIs ligado. Desligar também a IA local agora, para liberar a RAM?')) {
+        const s = await jv.ia.stop()
+        if (s.error) setErr(s.error)
+      }
+    } catch (e) {
+      setErr(e instanceof ApiError ? e.message : String(e))
+    } finally {
+      void refresh()
+    }
+  }
+  return (
+    <section className="panel form" style={{ marginBottom: 14 }}>
+      <label className="switch"><input type="checkbox" checked={on} onChange={(e) => void flip(e.target.checked)} /> <b>Usar só as APIs</b> (ignorar a IA local)</label>
+      <p className="dim small">Ligado: nenhuma resposta, agente, missão ou painel usa a IA local; só as APIs que você ligou abaixo (com chave e modelo). Provedores pagos só entram com “Autorizo gasto” no pedido, ou se você marcar a IA como <b>Grátis</b>. Pedidos marcados como <b>Sensíveis</b> não funcionam nesse modo, porque nunca saem deste PC.</p>
+      {err && <p className="err small" role="alert">{err}</p>}
+    </section>
+  )
+}
+
 export function AisView() {
   const ov = useApp((s) => s.overview)
   const refresh = useApp((s) => s.refresh)
@@ -131,6 +160,7 @@ export function AisView() {
     <div className="page">
       <h1>IAs</h1>
       <p className="dim lead">Cada IA responde a quatro perguntas separadas: alguém responde? aceita a autenticação? o modelo existe? uma inferência funcionou? Se a cota de uma acabar, o roteador passa para a próxima da lista, por prioridade, e deixa a esgotada de fora por 10 minutos.</p>
+      <ApisOnlyToggle />
       <ul className="stack">
         {ov?.providers.filter((p) => !p.extraOf).flatMap((p) => [p, ...ov.providers.filter((x) => x.extraOf === p.id)]).map((p) => (
           <li key={p.id} className="panel prov">
@@ -138,7 +168,7 @@ export function AisView() {
               <span className="dot big" style={{ background: TONE_COLOR[providerTone(p)] }} aria-hidden />
               <div className="grow">
                 <h2>{p.label}</h2>
-                <p className="dim small">{p.type} · {p.external ? 'externa' : 'local'} · {p.paid ? 'paga' : 'sem custo'} · prioridade {p.priority}{p.enabled ? '' : ' · desligada'}{p.allowedModels?.length ? ` · ${p.allowedModels.length} modelos permitidos` : p.model ? ` · ${p.model}` : ' · sem modelo'}</p>
+                <p className="dim small">{p.type} · {p.external ? 'externa' : ov?.apisOnly ? 'local · ignorada (modo só APIs)' : 'local'} · {p.paid ? 'paga' : 'sem custo'} · prioridade {p.priority}{p.enabled ? '' : ' · desligada'}{p.allowedModels?.length ? ` · ${p.allowedModels.length} modelos permitidos` : p.model ? ` · ${p.model}` : ' · sem modelo'}</p>
                 {p.status ? (
                   <div className="levels">
                     <Level name="endpoint" c={p.status.endpoint} />

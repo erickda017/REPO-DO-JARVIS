@@ -577,3 +577,17 @@ input, select { border-radius: var(--r-sm); }
 
 .conn-steps { margin: 4px 0 4px 18px; padding: 0; display: flex; flex-direction: column; gap: 6px; font-size: 13px; color: var(--dim); }
 .google { margin-top: 18px; }
+/* MCP screen */
+.mcp-form .wide { grid-column: 1 / -1; }
+.mcp-form textarea { width: 100%; background: rgba(5, 16, 26, 0.85); border: 1px solid var(--line); border-radius: var(--r-sm); padding: 8px 10px; resize: vertical; font-family: ui-monospace, Consolas, monospace; font-size: 13px; }
+.mcp-form select, .mcp-toolhead select { background: rgba(5, 16, 26, 0.85); border: 1px solid var(--line); border-radius: var(--r-sm); padding: 6px 10px; }
+.mcp-warn { padding: 10px 16px; margin: 12px 0; }
+.mcp-log { max-height: 220px; overflow: auto; font-size: 12px; white-space: pre-wrap; }
+.mcp-tools { display: flex; flex-direction: column; gap: 8px; }
+.mcp-toollist > li { display: flex; flex-direction: column; gap: 3px; padding: 8px 10px; border: 1px solid var(--line); border-radius: var(--r-sm); }
+.mcp-toollist > li[data-mode='auto'] { border-color: rgba(92, 214, 255, 0.45); }
+.mcp-toollist > li[data-mode='confirm'] { border-color: rgba(255, 190, 90, 0.4); }
+.mcp-toolhead { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.mcp-toolhead select { margin-left: auto; }
+.mcp-toolhead em[data-risk='read'] { color: var(--ok, #5be3a1); border-color: var(--ok, #5be3a1); }
+.caption-via { display: block; margin-top: 6px; font-size: 12px; letter-spacing: 0.04em; color: var(--dim); text-shadow: none; }

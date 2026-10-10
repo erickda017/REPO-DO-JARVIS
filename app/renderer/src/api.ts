@@ -44,7 +44,7 @@ export type TaskState = 'todo' | 'doing' | 'blocked' | 'done' | 'cancelled'
 export type Priority = 'low' | 'normal' | 'high' | 'urgent'
 export interface Task { id: string; title: string; notes: string; priority: Priority; state: TaskState; result: string | null; createdAt: string; updatedAt: string }
 export interface TimerView { status: 'idle' | 'running' | 'paused' | 'finished'; label: string; durationMs: number; remainingMs: number }
-export interface Overview { providers: ProviderView[]; services: ServiceView[]; projects: ProjectView[]; tasks: Task[]; timer: TimerView }
+export interface Overview { apisOnly?: boolean; providers: ProviderView[]; services: ServiceView[]; projects: ProjectView[]; tasks: Task[]; timer: TimerView }
 export interface AuditEntry { at: string; action: string; provider?: string; id?: string; [k: string]: unknown }
 export interface ChatTurn { role: 'user' | 'assistant'; content: string }
 export interface ChatReply { text: string; model: string; provider: string; latencyMs: number; routing?: { choice: string | null; skipped: string | null } }
@@ -53,7 +53,7 @@ export interface VoiceTest { ok: boolean; latencyMs: number; voices: { id: strin
 
 export interface AgentStep { id: number; tool: string; why: string | null; risk: string; ok?: boolean; verified?: boolean | null; evidence?: string; error?: string; denied?: boolean; skipped?: boolean; summary?: string }
 export interface AgentResult { status: 'concluido' | 'parcial' | 'nao_concluido' | 'pergunta'; kind: string; text: string; notes: string[]; evidence: unknown[]; audit?: { verdict: string; reason: string } }
-export interface AgentJob { id: string; status: 'running' | 'awaiting' | 'done'; partial?: string | null; steps: AgentStep[]; pending: { id: string; tool: string; message: string } | null; result: AgentResult | null; provider: string | null }
+export interface AgentJob { id: string; status: 'running' | 'awaiting' | 'done'; partial?: string | null; steps: AgentStep[]; pending: { id: string; tool: string; message: string } | null; result: AgentResult | null; provider: string | null; model?: string | null; models?: string[] }
 export interface AgentAccess { tools: Record<string, boolean>; roots: { path: string; label: string }[]; groups: Record<string, string>; autoDev?: boolean }
 export type MissionStatus = 'planning' | 'running' | 'awaiting' | 'verifying' | 'concluido' | 'parcial' | 'nao_concluido' | 'cancelled' | 'interrupted'
 export interface MissionStep { id: string; title: string; role: string; depends: string[]; status: 'pending' | 'running' | 'done' | 'failed' | 'skipped' | 'asking' | 'replaced'; attempts: number; summary?: string; notes?: string[]; question?: string; toolCalls?: number }
@@ -115,9 +115,31 @@ export interface ConnectorView {
   consent?: { authUrl: string }
 }
 
+export interface McpTool { name: string; description: string; params: Record<string, string>; mode: 'off' | 'confirm' | 'auto'; changed: boolean; hints: { readOnly: boolean; destructive: boolean; openWorld: boolean }; listed: boolean }
+export interface McpServer {
+  id: string; label: string; transport: 'stdio' | 'http'; command: string; args: string[]; url: string
+  env: { key: string; secret: boolean; value?: string; configured: boolean }[]
+  headers: { name: string; prefix: string; configured: boolean }[]
+  enabled: boolean; status: 'stopped' | 'starting' | 'ready' | 'error'; error: string | null; pid: number | null
+  server: { name: string; version: string; protocol: string } | null; logLines: number; tools: McpTool[]
+}
+export interface McpPreset { id: string; label: string; transport: 'stdio' | 'http'; command?: string; args?: string[]; url?: string; headers?: { name: string; prefix?: string }[]; note: string }
+export interface McpInput {
+  id?: string; label: string; transport: 'stdio' | 'http'; command?: string; args?: string[]; url?: string
+  env?: { key: string; value?: string; secret: boolean }[]; headers?: { name: string; prefix?: string; value?: string }[]
+}
 export interface GoogleStatus { configured: boolean; clientId: string; connected: boolean; email: string; scopes: string[]; pending: boolean; lastError: string | null }
 
 export const api = {
+  apisOnly: (on: boolean) => call<{ apisOnly: boolean }>('POST', 'ai/apisonly', { on }),
+  mcp: () => call<{ servers: McpServer[]; presets: McpPreset[] }>('GET', 'mcp'),
+  mcpSave: (server: McpInput, confirm: boolean) => call<McpServer>('POST', 'mcp/save', { server, confirm }),
+  mcpEnable: (id: string, on: boolean, confirm: boolean) => call<McpServer>('POST', 'mcp/enable', { id, on, confirm }),
+  mcpRefresh: (id: string) => call<McpServer>('POST', 'mcp/refresh', { id }),
+  mcpTool: (id: string, tool: string, mode: McpTool['mode']) => call<McpServer>('POST', 'mcp/tool', { id, tool, mode }),
+  mcpTrust: (id: string) => call<McpServer>('POST', 'mcp/trust', { id }),
+  mcpRemove: (id: string) => call<{ ok: boolean }>('POST', 'mcp/remove', { id }),
+  mcpLog: (id: string) => call<{ lines: string[] }>('GET', `mcp/log?id=${encodeURIComponent(id)}`),
   googleStatus: () => call<GoogleStatus>('GET', 'google/status'),
   googleClient: (clientId: string, clientSecret: string) => call<GoogleStatus>('POST', 'google/client', { clientId, clientSecret }),
   googleSignin: () => call<{ authUrl: string }>('POST', 'google/signin'),

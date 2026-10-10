@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { FolderOpen, Power, Square } from 'lucide-react'
 import type { IaMode, IaStatus } from '../../../electron/ia.ts'
 import { useApp } from '../store.ts'
+import { ApisOnlyToggle } from './Views.tsx'
 
 const MODES: { id: IaMode; title: string; text: string; heavy?: boolean }[] = [
   { id: 'leve', title: 'Só modelo leve', text: 'Qwen 4B na porta 8082. Basta para conversar pelo JARVIS e usa ~3 GB de RAM.' },
@@ -47,6 +48,7 @@ export function IaView() {
   return (
     <div className="page">
       <h1>IA local</h1>
+      <ApisOnlyToggle />
       <p className="dim lead">Liga e desliga a IA do projeto <code>ia-local</code> sem abrir janelas. É o mesmo comando dos seus atalhos, e o desligar usa o <code>PARAR_IA.bat</code> dela; a C.R.I.S e a ponte com o Umbra continuam funcionando como antes.</p>
 
       {!st?.valid ? (

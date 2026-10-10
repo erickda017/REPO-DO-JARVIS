@@ -21,7 +21,7 @@ export interface IaStatus {
   error?: string
 }
 
-const PORTS = { chat: 8080, pesado: 8081, leve: 8082 } as const
+const PORTS = { chat: 8080, pesado: 8081, leve: 8082 }
 const HEAVY_NEEDS_GB = 12
 
 const portOpen = (port: number) =>
@@ -35,8 +35,8 @@ const portOpen = (port: number) =>
 export const iaValid = (root: string | null): root is string =>
   Boolean(root && existsSync(join(root, 'llama', 'llama-server.exe')) && existsSync(join(root, 'modos.ini')) && existsSync(join(root, '_iniciar.bat')))
 
-export async function iaStatus(root: string | null): Promise<IaStatus> {
-  const [chat, pesado, leve] = await Promise.all([portOpen(PORTS.chat), portOpen(PORTS.pesado), portOpen(PORTS.leve)])
+export async function iaStatus(root: string | null, ports: typeof PORTS = PORTS): Promise<IaStatus> {
+  const [chat, pesado, leve] = await Promise.all([portOpen(ports.chat), portOpen(ports.pesado), portOpen(ports.leve)])
   return { root, valid: iaValid(root), ports: { chat, pesado, leve }, freeGB: +(freemem() / 2 ** 30).toFixed(1), totalGB: +(totalmem() / 2 ** 30).toFixed(1) }
 }
 
@@ -86,12 +86,63 @@ export async function iaStart(root: string | null, mode: IaMode, logDir: string)
   return iaStatus(root)
 }
 
-/** Uses the project's own PARAR_IA.bat (it matches llama-server by command line and the C.R.I.S node process). */
-export async function iaStop(root: string | null): Promise<IaStatus> {
+interface PortOwner { pid: number; port: number; name: string; cmd: string }
+
+/** Who is LISTENING on these ports right now (name and command line included). */
+export function portOwners(ports: number[]): Promise<PortOwner[]> {
+  const script = `Get-NetTCPConnection -State Listen -LocalPort ${ports.join(',')} -ErrorAction SilentlyContinue | ForEach-Object { $p = Get-CimInstance Win32_Process -Filter ("ProcessId=" + $_.OwningProcess); [pscustomobject]@{ pid = [int]$_.OwningProcess; port = [int]$_.LocalPort; name = [string]$p.Name; cmd = [string]$p.CommandLine } } | ConvertTo-Json -Compress`
+  return new Promise((resolve) =>
+    execFile('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', script], { windowsHide: true, timeout: 15000 }, (_e, out) => {
+      try {
+        const j = JSON.parse(String(out).trim() || '[]')
+        resolve((Array.isArray(j) ? j : [j]).filter((x) => x && Number.isInteger(x.pid)))
+      } catch {
+        resolve([])
+      }
+    }),
+  )
+}
+
+/** Only processes that belong to the local AI may be force-killed: the llama servers, and the C.R.I.S node server. */
+const isLocalAi = (o: PortOwner, root: string) =>
+  /^llama-server(\.exe)?$/i.test(o.name) || (/^node(\.exe)?$/i.test(o.name) && (/cris[\\/]servidor\.js/i.test(o.cmd) || o.cmd.toLowerCase().includes(root.toLowerCase())))
+
+const killTree = (pid: number) => new Promise<void>((resolve) => execFile('taskkill', ['/pid', String(pid), '/T', '/F'], { windowsHide: true, timeout: 10000 }, () => resolve()))
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms))
+
+/**
+ * Stops the local AI. First the project's own PARAR_IA.bat (it matches llama-server by command line and the C.R.I.S node
+ * process). That is not enough when the match misses (a server started another way) or something starts it again, so the
+ * result is then CHECKED: whatever still listens on the AI's ports is looked up and, when it is part of the local AI,
+ * force-killed (with its children); a second look catches anything that came back. If a port is still taken afterwards the
+ * error names the process, so the button never reports success it did not achieve.
+ */
+export async function iaStop(root: string | null, opts: { ports?: Partial<typeof PORTS>; settleMs?: number } = {}): Promise<IaStatus> {
   if (!iaValid(root)) return { ...(await iaStatus(root)), error: 'Pasta da IA local não encontrada.' }
+  const ports = { ...PORTS, ...(opts.ports ?? {}) }
+  const settle = opts.settleMs ?? 1500
   // Absolute path, quoted for cmd (the current directory is not searched for scripts, and the folder may contain spaces).
   const bat = join(root, 'PARAR_IA.bat')
   await new Promise<void>((resolve) => execFile('cmd.exe', ['/d', '/s', '/c', `"${bat}" silencioso`], { cwd: root, windowsHide: true, timeout: 20000, windowsVerbatimArguments: true }, () => resolve()))
-  await new Promise((r) => setTimeout(r, 1500))
-  return iaStatus(root)
+  await sleep(settle)
+  let left: PortOwner[] = []
+  for (let attempt = 0; attempt < 3; attempt++) {
+    left = await portOwners(Object.values(ports))
+    if (!left.length) {
+      await sleep(settle) // something may start it again right after: look once more before declaring victory
+      left = await portOwners(Object.values(ports))
+      if (!left.length) break
+    }
+    for (const o of left) if (isLocalAi(o, root)) await killTree(o.pid)
+    await sleep(settle)
+  }
+  const st = await iaStatus(root, ports)
+  if (left.length) {
+    const still = await portOwners(Object.values(ports))
+    if (still.length) {
+      const what = still.map((o) => `porta ${o.port}: ${o.name || '?'} (PID ${o.pid})${isLocalAi(o, root) ? ' — religou sozinho' : ' — não é da IA local, feche-o você'}`).join('; ')
+      return { ...st, error: `Não consegui desligar tudo: ${what}.` }
+    }
+  }
+  return st
 }

@@ -19,7 +19,7 @@
     "bridge:writes": "JARVIS_ALLOW_WRITES=1 node bridge/server.mjs",
     "setup": "node scripts/setup.mjs",
     "test:command": "node --test \"test/command/*.test.mjs\"",
-    "test:app": "node --test test/app/pure.test.ts test/app/genui-render.test.mjs",
+    "test:app": "node --test test/app/pure.test.ts test/app/genui-render.test.mjs test/app/ia-stop.test.ts",
     "app:build": "vite build -c vite.app.config.ts && node scripts/build-electron.mjs",
     "app": "npm run app:build && electron .",
     "app:dist": "node scripts/package-app.mjs",

@@ -114,6 +114,9 @@ await command.settings.ready()
 await command.access.ready()
 await command.google.ready()
 await command.connectors.ready() // after settings and Google: it reads its secrets from there
+await command.mcp.ready()
+void command.mcp.startEnabled() // servers the owner had switched on come back up (in the background: a slow one must not delay the bridge)
+for (const sig of ['exit', 'SIGINT', 'SIGTERM']) process.once(sig, () => { command.mcp.stopAll(); if (sig !== 'exit') process.exit(0) }) // no orphaned MCP processes
 
 /**
  * The orchestrator model. Override with JARVIS_MODEL to trade quality for pace

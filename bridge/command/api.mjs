@@ -46,12 +46,13 @@ const PERSONA = personaText() + '\n\n' +
   'Responda em português do Brasil, de forma direta e curta ' +
   '(no máximo duas ou três frases, a menos que peçam mais). Não invente fatos nem ações que não executou.'
 
-export function createApi({ openai, health, router, services, projects, tasks, timer, audit, voice, settings, access, monitor, profiles, agent, alerts, missions, memory, genui, connectors, google, allowNoOrigin }) {
+export function createApi({ openai, health, router, services, projects, tasks, timer, audit, voice, settings, access, monitor, profiles, agent, alerts, missions, memory, genui, connectors, google, mcp, allowNoOrigin }) {
   const PREFIX = '/api/command/'
 
   const routes = {
     'GET overview': async () => ({
       providers: health.snapshot(),
+      apisOnly: settings.flags.get('apisOnly') === true,
       services: services.list(),
       projects: await projects.list(),
       tasks: await tasks.list(),
@@ -103,6 +104,11 @@ export function createApi({ openai, health, router, services, projects, tasks, t
     // Provider API keys and per-provider switches, managed from the app. Keys are never returned.
     // The token of the OpenAI-compatible door; POST so that only an allowed browser origin (the app) can read it.
     'POST router/info': async () => ({ endpoint: 'http://127.0.0.1:8787/v1', token: await openai.token(), spend: settings.flags.get('routerSpend') === true }),
+    'POST ai/apisonly': async (b) => {
+      await settings.setFlag('apisOnly', b.on === true)
+      audit?.record('router.apisOnly', { on: b.on === true })
+      return { apisOnly: settings.flags.get('apisOnly') === true }
+    },
     'POST router/spend': async (b) => {
       await settings.setFlag('routerSpend', b.on === true)
       return { spend: settings.flags.get('routerSpend') === true }
@@ -121,6 +127,15 @@ export function createApi({ openai, health, router, services, projects, tasks, t
     'POST connectors/write': async (b) => connectors.setWrite(String(b.id ?? ''), b.on === true),
     'POST connectors/clear': async (b) => connectors.clear(String(b.id ?? '')),
     'POST connectors/test': async (b) => connectors.test(String(b.id ?? '')),
+    // MCP servers: the owner adds/starts them (stdio servers are programs: `confirm: true` must come from a person looking at the command)
+    'GET mcp': async () => ({ servers: mcp.list(), presets: mcp.PRESETS }),
+    'POST mcp/save': async (b) => mcp.save(b.server && typeof b.server === 'object' ? b.server : {}, { confirm: b.confirm === true }),
+    'POST mcp/enable': async (b) => mcp.setEnabled(String(b.id ?? ''), b.on === true, { confirm: b.confirm === true }),
+    'POST mcp/refresh': async (b) => mcp.refresh(String(b.id ?? '')),
+    'POST mcp/tool': async (b) => mcp.setToolMode(String(b.id ?? ''), String(b.tool ?? ''), String(b.mode ?? '')),
+    'POST mcp/trust': async (b) => mcp.trustReadOnly(String(b.id ?? '')),
+    'POST mcp/remove': async (b) => (await mcp.remove(String(b.id ?? '')), { ok: true }),
+    'GET mcp/log': async (q) => ({ lines: mcp.log(String(q.id ?? '')) }),
     // Google account (OAuth in the system browser): the client id/secret are the owner's own; tokens never leave the bridge
     'GET google/status': async () => google.status(),
     'POST google/client': async (b) => google.setClient(b.clientId, b.clientSecret),

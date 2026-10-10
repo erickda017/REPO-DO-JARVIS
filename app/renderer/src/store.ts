@@ -9,7 +9,7 @@ import { chime } from './voice/mic.ts'
 import type { ProjectGraph } from '../../electron/projects.ts'
 import type { AgentEvent, Metrics } from '../../electron/transcripts.ts'
 
-export type View = 'home' | 'chat' | 'code' | 'projects' | 'ia' | 'agent' | 'missions' | 'panels' | 'connectors' | 'ais' | 'system' | 'voice'
+export type View = 'home' | 'chat' | 'code' | 'projects' | 'ia' | 'agent' | 'missions' | 'panels' | 'connectors' | 'mcp' | 'ais' | 'system' | 'voice'
 export interface Touch { id: number; path: string; at: number }
 
 export type CardBody =
@@ -37,7 +37,7 @@ interface State {
   sensitive: boolean
   spend: boolean
   speak: boolean
-  caption: { id: number; text: string } | null
+  caption: { id: number; text: string; via?: string } | null
   /** Microphone state: idle -> listening (waiting for speech) -> hearing -> transcribing -> idle. */
   listen: 'idle' | 'listening' | 'hearing' | 'transcribing'
   /** A generative panel the owner should see next (just created by the agent, or opened from a link). */
@@ -85,7 +85,7 @@ async function askAgent(history: ChatTurn[], sensitive: boolean, spend: boolean,
   } catch (e) {
     if (!(e instanceof ApiError) || !/unknown command endpoint/.test(e.message)) throw e
     const r = await api.chat(history, sensitive, spend)
-    return { text: r.text, provider: r.provider, meta: `${r.provider} · ${r.model} · ${r.latencyMs} ms`, steps: 0, jobId: '' }
+    return { text: r.text, provider: r.provider, via: `${r.provider} · ${r.model}`, meta: `${r.provider} · ${r.model} · ${r.latencyMs} ms`, steps: 0, jobId: '' }
   }
   const t0 = Date.now()
   for (;;) {
@@ -95,12 +95,15 @@ async function askAgent(history: ChatTurn[], sensitive: boolean, spend: boolean,
     if (j.status === 'done' && j.result) {
       const label = { concluido: 'Concluído', parcial: 'Parcialmente concluído', nao_concluido: 'Não concluído', pergunta: 'Pergunta' }[j.result.status]
       const tools = j.steps.length ? ` · ${j.steps.map((s) => s.tool).join(', ')}` : ''
-      return { text: j.result.text, provider: j.provider ?? 'agente', meta: `${label}${tools} · ${((Date.now() - t0) / 1000).toFixed(1)} s`, steps: j.steps.length, jobId }
+      // Which model(s) really answered, e.g. "gemini · gemini-2.5-flash" (several, in order, when one failed and the next took over).
+      const via = (j.models?.length ? j.models : j.provider ? [j.provider] : []).map((m) => m.replace('/', ' · ')).join(' → ')
+      return { text: j.result.text, provider: j.provider ?? 'agente', via, meta: `${via ? via + ' · ' : ''}${label}${tools} · ${((Date.now() - t0) / 1000).toFixed(1)} s`, steps: j.steps.length, jobId }
     }
     if (Date.now() - t0 > 15 * 60_000) throw new ApiError('O agente demorou demais.')
   }
 }
 
+const webSpoken = new Set<string>() // jobs whose "one moment, searching the web" line was already spoken
 const seenAlerts = new Set<string>()
 const liveCaption = -1 // id of the subtitle that follows the answer as it streams in
 let listenCtrl: AbortController | null = null
@@ -338,6 +341,13 @@ export const useApp = create<State>((set, get) => ({
             set({ job: job.id !== dismissedJob && (job.steps.length || job.pending) ? job : null })
             // The answer shows as a subtitle while it is still being written.
             if (job.partial) set({ caption: { id: liveCaption, text: job.partial } })
+            // While a web tool is running, say so (subtitle, and aloud when the voice is on) instead of a silent wait.
+            const last = job.steps.at(-1)
+            if (last && last.ok === undefined && (last.tool === 'web_search' || last.tool === 'web_fetch') && !job.partial) {
+              const line = last.tool === 'web_search' ? 'Só um momento, buscando na web…' : 'Só um momento, lendo a página…'
+              set({ caption: { id: liveCaption, text: line } })
+              if (get().speak && !webSpoken.has(job.id)) { webSpoken.add(job.id); void speakViaBridge(line.replace('…', '.')) }
+            }
           })
           get().pulse('core')
           get().pulse(`ai:${r.provider}`)
@@ -345,7 +355,7 @@ export const useApp = create<State>((set, get) => ({
           if (r.steps > 0) setTimeout(() => set((x) => (x.job && x.job.status === 'done' && x.job.id === r.jobId ? { job: null } : {})), 14000)
           // The answer shows as a subtitle, not a card, and goes away when the voice stops (or after a reading time).
           const capId = ++seq
-          set({ caption: { id: capId, text: r.text } })
+          set({ caption: { id: capId, text: r.text, via: r.via } })
           const spoken = st.speak
             ? speakViaBridge(r.text).then(
                 (ok): Promise<void> =>

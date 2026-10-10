@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { Activity, Bot, LayoutDashboard, Plug, Workflow, Cpu, FolderGit2, Power, MessageSquare, Mic, Network, PanelLeftClose, PanelLeftOpen, Terminal } from 'lucide-react'
+import { Activity, Bot, Boxes, LayoutDashboard, Plug, Workflow, Cpu, FolderGit2, Power, MessageSquare, Mic, Network, PanelLeftClose, PanelLeftOpen, Terminal } from 'lucide-react'
 import { useApp, type View } from './store.ts'
 import { api } from './api.ts'
 import { NeuralScene } from './neural/Scene.tsx'
@@ -14,6 +14,7 @@ import { AgentView } from './ui/AgentView.tsx'
 import { MissionsView } from './ui/MissionsView.tsx'
 import { PanelsView } from './ui/PanelsView.tsx'
 import { ConnectorsView } from './ui/ConnectorsView.tsx'
+import { McpView } from './ui/McpView.tsx'
 import { AisView, ChatView, SystemView, VoiceView } from './ui/Views.tsx'
 
 const NAV: { id: View; label: string; icon: typeof Network }[] = [
@@ -25,6 +26,7 @@ const NAV: { id: View; label: string; icon: typeof Network }[] = [
   { id: 'missions', label: 'Missões', icon: Workflow },
   { id: 'panels', label: 'Painéis', icon: LayoutDashboard },
   { id: 'connectors', label: 'Conectores', icon: Plug },
+  { id: 'mcp', label: 'Servidores MCP', icon: Boxes },
   { id: 'ia', label: 'IA local', icon: Power },
   { id: 'ais', label: 'IAs', icon: Cpu },
   { id: 'system', label: 'Sistema', icon: Activity },
@@ -122,6 +124,7 @@ export function App() {
         {view === 'missions' && <MissionsView />}
         {view === 'panels' && <PanelsView />}
         {view === 'connectors' && <ConnectorsView />}
+        {view === 'mcp' && <McpView />}
         {view === 'ia' && <IaView />}
         {view === 'ais' && <AisView />}
         {view === 'system' && <SystemView />}

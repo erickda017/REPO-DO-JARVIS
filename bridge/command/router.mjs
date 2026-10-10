@@ -17,7 +17,7 @@ import { ProviderError, RouteError } from './errors.mjs'
  * If nothing succeeds the real attempts are reported; a result is never
  * invented.
  */
-export function createRouter({ registry, health, audit, clock = Date.now, cooldownMs = 30_000 }) {
+export function createRouter({ registry, health, audit, clock = Date.now, cooldownMs = 30_000, allowLocal = () => true }) {
   const cooldown = new Map() // id -> until (ms)
   // In-memory metrics per provider: calls, successes, latency, tokens and (when the config has a price) estimated spend.
   const stats = new Map()
@@ -60,7 +60,7 @@ export function createRouter({ registry, health, audit, clock = Date.now, cooldo
     for (const p of list.filter((x) => x.paid)) attempts.push({ provider: p.id, skipped: 'paid provider: needs "autorizo gasto"' })
     if (free.length === 0) {
       audit?.record('ai.route.blocked', { providers: list.map((p) => p.id), reason: 'spend-not-confirmed' })
-      throw new RouteError('blocked: this call spends tokens and was not confirmed', attempts)
+      throw new RouteError('blocked: this call spends tokens and was not confirmed — ligue "Autorizo gasto" (a carteira, na barra de mensagem) ou marque uma API como Grátis na tela IAs', attempts)
     }
     return free
   }
@@ -72,6 +72,7 @@ export function createRouter({ registry, health, audit, clock = Date.now, cooldo
       const why =
         !p.enabled ? 'disabled'
         : p.type === 'unverified' ? 'integration not verified'
+        : !p.external && allowLocal() === false ? 'local AI switched off (APIs-only mode)'
         : !p.capabilities.includes(req.capability) ? `no ${req.capability} capability`
         : req.sensitive && p.external && !p.allowSensitive ? 'sensitive data not allowed to leave this machine'
         : providerCooling(p) ? 'cooling down after a failure'
@@ -107,7 +108,14 @@ export function createRouter({ registry, health, audit, clock = Date.now, cooldo
     const attempts = [...skipped]
     if (list.length === 0) {
       audit?.record('ai.route.none', { capability: req.capability, sensitive: req.sensitive, skipped })
-      throw new RouteError('no eligible provider for this request', attempts)
+      // In "APIs only" mode say exactly what is missing instead of a generic refusal.
+      const apisOnly = skipped.some((s) => /APIs-only/.test(s.skipped))
+      throw new RouteError(
+        apisOnly
+          ? `Modo "só APIs" ligado (a IA local não é usada): ${req.sensitive ? 'um pedido sensível não pode sair deste PC' : 'nenhuma API está pronta — ligue uma na tela IAs, com chave e modelo'}.`
+          : 'no eligible provider for this request',
+        attempts,
+      )
     }
     const usable = spendFilter(list, req, attempts)
     return { req, usable, attempts }

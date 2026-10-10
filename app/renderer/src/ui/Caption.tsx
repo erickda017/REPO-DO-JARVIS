@@ -17,6 +17,7 @@ export function Caption() {
             transition={{ duration: 0.45, ease: [0.16, 1, 0.3, 1] }}
           >
             {caption.text}
+            {caption.via && <small className="caption-via">respondido por {caption.via}</small>}
           </motion.p>
         )}
       </AnimatePresence>

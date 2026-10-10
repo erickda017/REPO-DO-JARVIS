@@ -22,9 +22,10 @@ export const GROUPS = {
   dev: 'Desenvolvimento: rodar testes/builds do projeto e servidores locais (executa código do projeto, sempre com confirmação)',
   screen: 'Capturar a tela (o arquivo pode mostrar dados privados)',
   ui: 'Painéis: criar interfaces (gráficos, tabelas, formulários) para mostrar resultados',
+  mcp: 'Servidores MCP: ferramentas de servidores que você adicionou na tela MCP (cada servidor e cada ferramenta tem a sua própria chave de ligar; nada vem ligado)',
   connectors: 'Conectores: serviços externos que você ligou (GitHub, Notion, Slack...). Cada um tem a sua chave de ligar e, para alterar algo, uma permissão própria',
 }
-const DEFAULT_TOOLS = { files: true, web: true, system: true, apps: false, processes: false, commands: false, dev: false, screen: false, ui: true, connectors: true }
+const DEFAULT_TOOLS = { files: true, web: true, system: true, apps: false, processes: false, commands: false, dev: false, screen: false, ui: true, connectors: true, mcp: true }
 
 /**
  * What the owner has allowed the agent to touch, saved in data/agent-access.json:

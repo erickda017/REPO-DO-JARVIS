@@ -77,7 +77,7 @@ export function createOpenAiApi({ router, registry, file, flags, audit }) {
       }
       try {
         if (req.method === 'GET' && path === '/v1/models') {
-          const data = [{ id: 'auto', object: 'model', owned_by: 'jarvis-router' }, ...registry.list().filter((p) => p.enabled && p.type !== 'unverified' && !p.capabilities.includes('decision')).map((p) => ({ id: p.id, object: 'model', owned_by: p.id }))]
+          const data = [{ id: 'auto', object: 'model', owned_by: 'jarvis-router' }, ...registry.list().filter((p) => p.enabled && p.type !== 'unverified' && !p.capabilities.includes('decision') && !(!p.external && flags.get('apisOnly') === true)).map((p) => ({ id: p.id, object: 'model', owned_by: p.id, jarvis: { local: !p.external, paid: p.paid } }))] // "APIs only" hides the local model here too
           send(res, 200, { object: 'list', data })
           return true
         }
