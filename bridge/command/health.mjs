@@ -48,6 +48,8 @@ export function createHealth({ registry, audit, clock = Date.now }) {
       result.endpoint = probe.endpoint
       result.auth = probe.auth
       result.models = probe.models
+      // A tunnel server (Colab) serves the one model it loaded, and names it by file path: use whatever it reports instead of a guessed name.
+      if (p.editableUrl && probe.models?.length && !probe.models.includes(p.defaultModel) && !p.allowedModels.some((m) => probe.models.includes(m))) registry.update(id, { model: probe.models[0] })
       const want = p.defaultModel
       if (!want) result.model = { state: 'unknown', detail: 'no model configured' }
       else if (probe.models == null) result.model = { state: 'unknown', detail: 'catalogue unavailable' }

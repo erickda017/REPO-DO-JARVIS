@@ -76,7 +76,7 @@ function ProviderControls({ p, keys, reload }: { p: ProviderView; keys: KeyStatu
         {models.length > 0 ? (
           <select value={model} onChange={(e) => setModel(e.target.value)} aria-label="Modelo">
             <option value="">escolha o modelo…</option>
-            {models.slice(0, 300).map((m) => <option key={m}>{m}</option>)}
+            {models.slice(0, 300).map((m) => <option key={m} value={m} title={m}>{m.length > 60 ? m.split('/').pop() : m}</option>)}
           </select>
         ) : (
           <input value={model} onChange={(e) => setModel(e.target.value)} placeholder="modelo (cole o id, ou salve a chave e clique em Checar)" aria-label="Modelo" />

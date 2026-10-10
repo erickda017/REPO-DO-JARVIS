@@ -63,6 +63,24 @@ test('colab: without an address nothing is called (unconfigured, no network); a 
   assert.equal(dead.models, null, 'no catalogue from a dead tunnel')
 })
 
+test('colab: the server names its model by file path (long): it is adopted by the health check, accepted by settings, sent as is', async () => {
+  const path = '/root/.cache/huggingface/hub/models--mradermacher--Qwen2.5-Coder-14B-Instruct-abliterated-GGUF/snapshots/6a5dcca31ef7dd0888c29fa5fe8591284853050a/Qwen2.5-Coder-14B-Instruct-abliterated.Q4_K_M.gguf'
+  assert.ok(path.length > 120)
+  const bodies = []
+  const { registry, settings, health, router } = await stack((url, init) => {
+    if (url.endsWith('/models')) return { body: { data: [{ id: path }] } }
+    bodies.push(JSON.parse(init.body).model)
+    return ok('oi')
+  })
+  await settings.setProvider('colab', { enabled: true, baseUrl: 'https://quatro.trycloudflare.com' })
+  const r = await health.check('colab')
+  assert.equal(r.model.state, 'ok')
+  assert.equal(registry.get('colab').defaultModel, path)
+  await settings.setProvider('colab', { allowedModels: [path] }) // pasted by hand: no length error
+  await router.run({ prompt: 'oi' })
+  assert.equal(bodies.at(-1), path)
+})
+
 test('colab: the address survives a restart (saved in the overrides)', async () => {
   const dir = await mkdtemp(join(tmpdir(), 'colab-'))
   try {

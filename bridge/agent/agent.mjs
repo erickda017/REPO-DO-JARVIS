@@ -203,9 +203,11 @@ export function createAgent({ router, tools, access, audit, flags = null, person
       // A model call can take a minute; the Stop button / the deadline apply as soon as it returns, before any tool runs.
       if ((job.error = stopped())) break
       job.provider = reply.provider
-      job.model = reply.model ?? null
+      // Some servers name the model by file path (/root/.cache/.../x.gguf): show only the file name.
+      const shown = reply.model && reply.model.length > 60 ? reply.model.split('/').pop() : reply.model
+      job.model = shown ?? null
       // Every distinct provider/model that actually answered during this job, in order (a failover shows up here).
-      const used = `${reply.provider}/${reply.model ?? '?'}`
+      const used = `${reply.provider}/${shown ?? '?'}`
       ;(job.models ??= []).includes(used) || job.models.push(used)
       const act = parseAction(reply.text)
       if (act.action === 'final') {

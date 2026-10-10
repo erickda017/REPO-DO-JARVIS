@@ -3,7 +3,7 @@ import { dirname } from 'node:path'
 
 const NAME_RE = /^[A-Z][A-Z0-9_]{2,60}$/
 const VALUE_RE = /^[^\s]{8,400}$/
-const MODEL_RE = /^[\w.:/-]{1,120}$/
+const MODEL_RE = /^[\w.:/+@-]{1,300}$/ // long on purpose: llama-cpp-python names its model by file path (/root/.cache/huggingface/.../x.gguf)
 
 /** The owner's pasted tunnel address -> `https://host/v1` (empty clears it). Only https, a real host name, no login/query/fragment: this URL receives the prompts. */
 export function normalizeTunnelUrl(raw) {
