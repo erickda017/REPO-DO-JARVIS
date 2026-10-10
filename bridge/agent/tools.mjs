@@ -34,7 +34,7 @@ const htmlToText = (html) =>
 const DENY_COMMAND = /(format-volume|\bformat\s+[a-z]:|diskpart|bcdedit|cipher\s+\/w|vssadmin|wbadmin|reg\s+(delete|add)\s+hk(lm|cr)|set-mppreference|add-mppreference|disable-windowsoptionalfeature|remove-item[^|;]*-recurse[^|;]*\s[a-z]:\\?\s*$|stop-service|sc\s+(stop|delete|config)|net\s+user|schtasks\s+\/(delete|create)|invoke-expression|iex\b|downloadstring|invoke-webrequest[^|;]*\|\s*iex|netsh\s+(advfirewall|firewall)|takeown|icacls[^|;]*\/grant|shutdown|restart-computer|stop-computer)/i
 
 /** @returns {Record<string, any>} the tool table, closed over the shared services */
-export function buildTools({ access, monitor, profiles, env = process.env, dataDir, memory = null, profileFile }) {
+export function buildTools({ access, monitor, profiles, env = process.env, dataDir, memory = null, profileFile, getGenUi = null }) {
   const T = {}
   const def = (name, group, risk, desc, params, run, confirm) => (T[name] = { name, group, risk, desc, params, run, confirm })
 
@@ -291,6 +291,24 @@ export function buildTools({ access, monitor, profiles, env = process.env, dataD
   // ------------------------------------------------------------------------- development + screen (devtools.mjs)
   Object.assign(T, buildDevTools({ access, env, dataDir }))
 
+  // ------------------------------------------------------------------------- generative panels (command/genui.mjs)
+  // A panel is declarative data, never code. These tools only register/update it; what its buttons do goes through the normal tools and confirmations.
+  if (getGenUi) {
+    const ui = () => { const g = getGenUi(); if (!g) throw new AgentError('unavailable', 'painéis indisponíveis'); return g }
+    const created = (r) => {
+      if (!r.ok) throw new AgentError('spec', `especificação inválida: ${r.message ?? r.errors?.map((e) => `${e.path}: ${e.msg}`).join('; ')}`)
+      return { data: { panelId: r.id, warnings: (r.warnings ?? []).slice(0, 5).map((w) => `${w.path}: ${w.msg}`), note: 'painel criado; o usuário o vê na tela Painéis' }, verified: true, evidence: `painel ${r.id} registrado` }
+    }
+    def('ui_catalog', 'ui', 'read', 'Lista os componentes e o formato da especificação de painéis (use antes de ui_show).', {}, async () => ({ data: { catalog: ui().CATALOG } }))
+    def('ui_quick', 'ui', 'read', 'Cria um painel pronto a partir de DADOS reais que você já tem: kind = table | bar | hbar | line | area | pie | donut | compare | stats | files | steps | log. Prefira este a ui_show.', { kind: 'tipo do painel', title: 'título', data: 'lista de objetos (linhas) ou de textos (log)', columns: 'colunas opcionais', x: 'chave do eixo X/categoria', series: 'chaves numéricas', unit: 'unidade', purpose: 'para que serve', note: 'aviso opcional' }, async (a) => created(await ui().quick(a, { owner: { kind: 'agent' } })))
+    def('ui_show', 'ui', 'read', 'Cria um painel a partir de uma especificação JSON completa (veja ui_catalog). Para interfaces que ui_quick não cobre: formulários, abas, painéis com fontes de dados vivas e botões.', { spec: 'objeto JSON da especificação' }, async ({ spec }) => created(await ui().create(typeof spec === 'string' ? JSON.parse(spec) : spec, { owner: { kind: 'agent' } })))
+    def('ui_update', 'ui', 'read', 'Atualiza um painel existente sem recriá-lo: ops = [{op:"setData",name,value} | {op:"appendData",name,value} | {op:"setStatus",status:"loading|ready|error|done",text} | {op:"patchNode",id,props} | {op:"addNode",parent,node} | {op:"removeNode",id} | {op:"setState",values}].', { id: 'id do painel', ops: 'lista de operações' }, async ({ id, ops }) => {
+      const r = await ui().update(String(id), typeof ops === 'string' ? JSON.parse(ops) : ops)
+      if (!r.ok) throw new AgentError('spec', `atualização recusada: ${r.message ?? r.errors?.map((e) => `${e.path}: ${e.msg}`).join('; ')}`)
+      return { data: r, verified: true, evidence: `painel ${id} na revisão ${r.specRev}` }
+    })
+    def('ui_close', 'ui', 'read', 'Fecha um painel que não é mais necessário.', { id: 'id do painel' }, async ({ id }) => ({ data: { closed: await ui().close(String(id)) } }))
+  }
   // ------------------------------------------------------------------------- memory + self-profile
   if (memory) {
     def('memory_remember', 'system', 'write', 'Guarda na memória operacional algo aprendido: kind = fact (confirmado), hypothesis (NÃO confirmado), decision, error ou solution. Nunca guarde senhas ou chaves.', { kind: 'fact|hypothesis|decision|error|solution', text: 'o que lembrar (curto)', confidence: 'confirmed|probable|unverified', tags: 'lista de palavras-chave' }, async ({ kind, text, confidence, tags }) => {

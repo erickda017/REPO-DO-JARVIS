@@ -17,6 +17,7 @@ import { createAccess } from '../agent/access.mjs'
 import { createMemory } from '../agent/memoria.mjs'
 import { createOrchestrator } from '../agent/orquestrador.mjs'
 import { personaText } from '../agent/perfil.mjs'
+import { createGenUi } from './genui.mjs'
 import { createMonitor } from '../agent/monitor.mjs'
 import { createProfiles } from '../agent/profiles.mjs'
 import { buildTools } from '../agent/tools.mjs'
@@ -45,7 +46,8 @@ export function createCommand({ config = loadConfig(), fetch: fetchImpl = fetch,
   const monitor = createMonitor({ clock })
   const profiles = createProfiles({ file: persist ? join(config.dataDir, 'profile-state.json') : null, monitor, clock })
   const memory = createMemory({ file: persist ? join(config.dataDir, 'memory.jsonl') : null })
-  const tools = buildTools({ access, monitor, profiles, env, dataDir: persist ? config.dataDir : undefined, memory })
+  let genui = null
+  const tools = buildTools({ access, monitor, profiles, env, dataDir: persist ? config.dataDir : undefined, memory, getGenUi: () => genui })
   const agent = createAgent({ router, tools, access, audit, flags: settings.flags, persona: personaText(), clock })
   const alerts = []
   /** Low-space warnings: one per drive per 12 h, only when a drive is under 10 % or 15 GB free. */
@@ -64,8 +66,9 @@ export function createCommand({ config = loadConfig(), fetch: fetchImpl = fetch,
     setInterval(checkDisks, 5 * 60_000).unref?.()
   }
   const openai = createOpenAiApi({ router, registry, file: persist ? join(config.dataDir, 'router-token.txt') : null, flags: settings.flags, audit })
-  const missions = createOrchestrator({ router, agent, access, memory, audit, dir: persist ? join(config.dataDir, 'missions') : null, clock })
-  const parts = { openai, config, registry, health, router, services, projects, tasks, timer, audit, voice, settings, access, monitor, profiles, agent, alerts, missions, memory }
+  const missions = createOrchestrator({ router, agent, access, memory, audit, dir: persist ? join(config.dataDir, 'missions') : null, clock, hooks: { created: (id, goal) => genui?.forMission(id, goal) } })
+  genui = createGenUi({ tools, access, flags: settings.flags, router, missions, monitor, audit, dir: persist ? join(config.dataDir, 'ui') : null, clock })
+  const parts = { openai, config, registry, health, router, services, projects, tasks, timer, audit, voice, settings, access, monitor, profiles, agent, alerts, missions, memory, genui }
   const api = createApi({ ...parts, allowNoOrigin })
   if (config.autoStartMonitors) services.start()
   return { ...parts, api }

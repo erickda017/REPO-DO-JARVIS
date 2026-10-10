@@ -19,17 +19,18 @@ import { redactString } from '../command/redact.mjs'
  */
 
 const READ = ['fs_list', 'fs_read', 'fs_search', 'git_status', 'git_diff', 'git_log', 'memory_recall', 'jarvis_perfil']
+const UI = ['ui_quick', 'ui_show', 'ui_update', 'ui_catalog']
 const SYS = ['sys_summary', 'sys_top', 'sys_temperature', 'monitor_report', 'disk_report', 'disk_largest', 'disk_big_files', 'mem_snapshot', 'mc_locate', 'proc_list']
 
 export const ROLES = {
   engenheiro: {
     label: 'Engenharia', tier: 'strong', maxSteps: 16, readOnly: false,
-    tools: [...READ, 'fs_write', 'fs_mkdir', 'fs_move', 'git_checkpoint', 'project_run', 'server_start', 'server_status', 'server_stop', 'http_local', 'memory_remember'],
+    tools: [...READ, 'fs_write', 'fs_mkdir', 'fs_move', 'git_checkpoint', 'project_run', 'server_start', 'server_status', 'server_stop', 'http_local', 'memory_remember', ...UI],
     prompt: 'PAPEL: engenheiro de software. Antes de editar um projeto versionado rode git_status e, para mudança grande, git_checkpoint. Edite com fs_write (overwrite=true só no arquivo certo), depois confira com git_diff e rode os testes relevantes com project_run. Corrija a causa com evidência, não por tentativa aleatória. Preserve alterações que o usuário já tinha.',
   },
   diagnostico: {
     label: 'Diagnóstico', tier: 'cheap', maxSteps: 12, readOnly: true,
-    tools: [...READ, 'project_run', 'server_status', 'http_local', 'memory_remember'],
+    tools: [...READ, 'project_run', 'server_status', 'http_local', 'memory_remember', ...UI],
     prompt: 'PAPEL: diagnóstico. Leia logs e código, reproduza o erro (project_run) e termine com a CAUSA PROVÁVEL apoiada em evidências observadas (cite o arquivo, a linha ou a saída). Hipótese sem prova deve ser dita como hipótese. Não altere arquivos.',
   },
   auditor: {
@@ -39,12 +40,12 @@ export const ROLES = {
   },
   pesquisador: {
     label: 'Pesquisa', tier: 'cheap', maxSteps: 8, readOnly: true,
-    tools: ['web_search', 'web_fetch', 'fs_read', 'fs_list', 'memory_recall', 'memory_remember'],
+    tools: ['web_search', 'web_fetch', 'fs_read', 'fs_list', 'memory_recall', 'memory_remember', ...UI],
     prompt: 'PAPEL: pesquisador técnico. Busque em fontes oficiais, cite a URL de cada afirmação e separe o que está na fonte do que é sua inferência.',
   },
   windows: {
     label: 'Automação do Windows', tier: 'cheap', maxSteps: 12, readOnly: false,
-    tools: [...SYS, ...READ, 'fs_write', 'fs_mkdir', 'fs_move', 'fs_delete', 'temp_clean', 'app_list', 'app_open', 'url_open', 'proc_close', 'profile_prepare', 'profile_apply', 'profile_status', 'profile_stop', 'run_command', 'screen_capture', 'memory_remember'],
+    tools: [...SYS, ...READ, 'fs_write', 'fs_mkdir', 'fs_move', 'fs_delete', 'temp_clean', 'app_list', 'app_open', 'url_open', 'proc_close', 'profile_prepare', 'profile_apply', 'profile_status', 'profile_stop', 'run_command', 'screen_capture', 'memory_remember', ...UI],
     prompt: 'PAPEL: automação do Windows. Use a ferramenta específica antes de run_command. Ações destrutivas passam pela confirmação do usuário; nunca tente contorná-la.',
   },
   seguranca: {
@@ -104,7 +105,7 @@ Ferramentas ligadas agora: ${groupsOn || 'nenhuma'}. Desligadas (não dependa de
  * @param {object} deps.access  for the plan prompt (which groups are on)
  * @param {string|null} deps.dir  data/missions (null = memory only)
  */
-export function createOrchestrator({ router, agent, access, memory = null, audit = null, dir = null, clock = Date.now, limits = {} }) {
+export function createOrchestrator({ router, agent, access, memory = null, audit = null, dir = null, clock = Date.now, limits = {}, hooks = {} }) {
   const defaults = { ...DEFAULT_LIMITS, ...limits }
   const missions = new Map()
   const running = new Map() // id -> { cancelled, jobs:Set<jobId> }
@@ -379,6 +380,7 @@ export function createOrchestrator({ router, agent, access, memory = null, audit
       missions.set(m.id, m)
       note(m, 'missão criada')
       audit?.record('mission.start', { id: m.id.slice(0, 8), goalChars: text.length })
+      try { await hooks.created?.(m.id, text) } catch { /* a missing live panel never blocks the mission */ }
       launch(m)
       return { id: m.id }
     },

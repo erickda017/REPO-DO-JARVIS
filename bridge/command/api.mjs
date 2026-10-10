@@ -46,7 +46,7 @@ const PERSONA = personaText() + '\n\n' +
   'Responda em português do Brasil, de forma direta e curta ' +
   '(no máximo duas ou três frases, a menos que peçam mais). Não invente fatos nem ações que não executou.'
 
-export function createApi({ openai, health, router, services, projects, tasks, timer, audit, voice, settings, access, monitor, profiles, agent, alerts, missions, memory, allowNoOrigin }) {
+export function createApi({ openai, health, router, services, projects, tasks, timer, audit, voice, settings, access, monitor, profiles, agent, alerts, missions, memory, genui, allowNoOrigin }) {
   const PREFIX = '/api/command/'
 
   const routes = {
@@ -162,7 +162,23 @@ export function createApi({ openai, health, router, services, projects, tasks, t
     'POST mission/resume': async (b) => ({ ok: await missions.resume(String(b.id ?? '')) }),
     'GET memory': async () => memory.list({ limit: 50 }),
     'POST memory/forget': async (b) => ({ ok: await memory.forget(String(b.id ?? '')) }),
-    'GET agent/alerts': async () => alerts.slice(-10),
+    // Generative panels (see command/genui.mjs): declarative specs, live data, actions through the normal tools and confirmations
+    'GET ui/catalog': async () => ({ catalog: genui.CATALOG }),
+    'GET ui/list': async () => genui.list(),
+    'GET ui/panel': async (q) => {
+      const data = {}
+      for (const part of String(q.d ?? '').split(',').filter(Boolean)) { const [n, r] = part.split(':'); if (n) data[n] = Number(r) || 0 }
+      return (await genui.view(String(q.id ?? ''), { specRev: Number(q.specRev) || 0, stateRev: Number(q.stateRev) || 0, data })) ?? Promise.reject(new HttpError(404, 'unknown panel'))
+    },
+    'POST ui/create': async (b) => genui.create(b.spec, { owner: { kind: 'user' } }),
+    'POST ui/quick': async (b) => genui.quick(b, { owner: { kind: 'user' } }),
+    'POST ui/generate': async (b) => genui.generate({ prompt: String(b.prompt ?? ''), data: b.data, hint: typeof b.hint === 'string' ? b.hint : undefined, title: typeof b.title === 'string' ? b.title : undefined, sensitive: b.sensitive === true, confirmSpend: b.confirm === true, owner: { kind: 'user' } }),
+    'POST ui/update': async (b) => genui.update(String(b.id ?? ''), b.ops),
+    'POST ui/action': async (b) => genui.action(String(b.id ?? ''), String(b.action ?? ''), { state: b.state, row: b.row, form: b.form, confirmed: b.confirmed === true }),
+    'POST ui/close': async (b) => ({ ok: await genui.close(String(b.id ?? '')) }),
+    'POST ui/pin': async (b) => ({ ok: await genui.pin(String(b.id ?? ''), typeof b.name === 'string' ? b.name : undefined) }),
+    'POST ui/unpin': async (b) => ({ ok: await genui.unpin(String(b.id ?? '')) }),
+    'POST ui/state': async (b) => ({ ok: await genui.saveState(String(b.id ?? ''), b.state) }),    'GET agent/alerts': async () => alerts.slice(-10),
     'GET agent/profile': async () => profiles.status(),
     'GET monitor/summary': async () => ({ summary: monitor.summary(), report: monitor.report(30), history: monitor.history().slice(-60), disks: await monitor.disks().catch(() => []) }),
     'POST monitor/report': async (b) => monitor.report(Math.min(Math.max(Number(b.minutes) || 30, 1), 60)),
