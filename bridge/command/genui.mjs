@@ -478,7 +478,14 @@ export function createGenUi({ tools, access, flags = null, router = null, missio
       let spec = null
       let msgs = [{ role: 'user', content: userMsg }]
       for (let attempt = 0; attempt < 2; attempt++) {
-        const r = await router.run({ system: GENERATE_SYSTEM(), messages: msgs, capability: 'chat', sensitive, confirmSpend, maxTokens: 2500, tier: confirmSpend ? 'strong' : 'cheap' })
+        let r
+        try {
+          r = await router.run({ system: GENERATE_SYSTEM(), messages: msgs, capability: 'chat', fast: true, sensitive, confirmSpend, maxTokens: 2500, tier: confirmSpend ? 'strong' : 'cheap' })
+        } catch (e) {
+          // No AI could answer (quota, paused, paid without permission): with data in hand the owner still gets a table; otherwise the reason, in words.
+          if (Array.isArray(data) && data.length) { const q = await api.quick({ kind: 'table', title: title ?? clip(prompt, 60), data, note: 'Painel simplificado: nenhuma IA estava disponível para montar uma interface melhor.' }, { owner }); if (q.ok) return { ...q, via: 'fallback' } }
+          return { ok: false, errors: [{ path: '', msg: String(e?.message ?? e).slice(0, 600) }] }
+        }
         spec = extractJson(r.text)
         const v = spec ? validateSpec(spec) : { ok: false, errors: [{ path: '', msg: 'a resposta não foi um JSON' }] }
         const extra = v.ok ? checkTools(v.spec) : []

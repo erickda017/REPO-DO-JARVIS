@@ -51,11 +51,20 @@ export function openaiCompatProvider(cfg, { fetch: fetchImpl = fetch, env = proc
     /** Token by token: yields { delta } and, when the server reports it, a final { usage }. */
     async *stream({ model, prompt, messages: history, system, maxTokens = 512, signal }) {
       const messages = [...(system ? [{ role: 'system', content: system }] : []), ...(history ?? [{ role: 'user', content: prompt }])]
+      let any = false
       for await (const ev of sse(fetchImpl, `${base()}/chat/completions`, { headers: headers(), body: JSON.stringify({ model, messages, stream: true, [cfg.tokenParam ?? 'max_tokens']: maxTokens }), idleTimeoutMs: cfg.inferTimeoutMs ?? 120000, provider: cfg.id, signal })) {
         if (ev.error) throw new ProviderError('bad_response', String(ev.error.message ?? 'stream error').slice(0, 160), { provider: cfg.id })
-        const d = ev.choices?.[0]?.delta?.content ?? ev.choices?.[0]?.message?.content
-        if (typeof d === 'string' && d) yield { delta: d }
+        // llama.cpp style servers may answer with `text` instead of `delta.content`
+        const c0 = ev.choices?.[0]
+        const d = c0?.delta?.content ?? c0?.message?.content ?? c0?.text
+        if (typeof d === 'string' && d) { any = true; yield { delta: d } }
         if (ev.usage) yield { usage: { inputTokens: ev.usage.prompt_tokens, outputTokens: ev.usage.completion_tokens } }
+      }
+      // Some servers (a Colab tunnel, a local llama.cpp) end a stream without a word: ask once without streaming before giving up on them.
+      if (!any && !signal?.aborted) {
+        const out = await this.infer({ model, messages: history, prompt, system, maxTokens })
+        yield { delta: out.text }
+        if (out.usage?.inputTokens != null) yield { usage: out.usage }
       }
     },
 
@@ -101,7 +110,7 @@ export function openaiCompatProvider(cfg, { fetch: fetchImpl = fetch, env = proc
         provider: cfg.id,
       })
       raiseForStatus(res, cfg.id)
-      const text = res.json?.choices?.[0]?.message?.content
+      const text = res.json?.choices?.[0]?.message?.content ?? res.json?.choices?.[0]?.text
       if (typeof text !== 'string' || !text) {
         throw new ProviderError('bad_response', 'no choices[0].message.content in reply', { provider: cfg.id })
       }

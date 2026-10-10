@@ -10,6 +10,7 @@ import { cleanTempFiles } from './cleantemp.mjs'
 import { classify, closeProcess, listProcesses, processInfo } from './procs.mjs'
 import { isWindows, ps, psJson, q } from './winps.mjs'
 import { buildDevTools } from './devtools.mjs'
+import { buildControlTools } from './controle.mjs'
 import { buildProfile } from './perfil.mjs'
 
 /**
@@ -35,7 +36,7 @@ const htmlToText = (html) =>
 const DENY_COMMAND = /(format-volume|\bformat\s+[a-z]:|diskpart|bcdedit|cipher\s+\/w|vssadmin|wbadmin|reg\s+(delete|add)\s+hk(lm|cr)|set-mppreference|add-mppreference|disable-windowsoptionalfeature|remove-item[^|;]*-recurse[^|;]*\s[a-z]:\\?\s*$|stop-service|sc\s+(stop|delete|config)|net\s+user|schtasks\s+\/(delete|create)|invoke-expression|iex\b|downloadstring|invoke-webrequest[^|;]*\|\s*iex|netsh\s+(advfirewall|firewall)|takeown|icacls[^|;]*\/grant|shutdown|restart-computer|stop-computer)/i
 
 /** @returns {Record<string, any>} the tool table, closed over the shared services */
-export function buildTools({ access, monitor, profiles, env = process.env, dataDir, memory = null, profileFile, getGenUi = null, getConnectors = null }) {
+export function buildTools({ access, monitor, profiles, env = process.env, dataDir, memory = null, profileFile, getGenUi = null, getConnectors = null, uiBus = null, getIa = null }) {
   const T = {}
   const def = (name, group, risk, desc, params, run, confirm) => (T[name] = { name, group, risk, desc, params, run, confirm })
 
@@ -312,6 +313,9 @@ export function buildTools({ access, monitor, profiles, env = process.env, dataD
 
   // ------------------------------------------------------------------------- development + screen (devtools.mjs)
   Object.assign(T, buildDevTools({ access, env, dataDir }))
+
+  // ------------------------------------------------------------------------- ready-made PC / interface commands (controle.mjs)
+  Object.assign(T, buildControlTools({ access, monitor, env, uiBus, getIa }))
 
   // ------------------------------------------------------------------------- generative panels (command/genui.mjs)
   // A panel is declarative data, never code. These tools only register/update it; what its buttons do goes through the normal tools and confirmations.

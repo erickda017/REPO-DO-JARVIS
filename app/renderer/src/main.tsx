@@ -10,6 +10,13 @@ import './styles.css'
 import { MotionConfig } from 'framer-motion'
 import { App } from './App.tsx'
 import { ErrorBoundary } from './ui/ErrorBoundary.tsx'
+import { applyTheme, savedTheme } from './theme.ts'
+import { setPalette } from './neural/palette.ts'
+
+// colours first, so the first frame already has the chosen theme
+const startTheme = savedTheme()
+applyTheme(startTheme)
+setPalette(startTheme)
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>

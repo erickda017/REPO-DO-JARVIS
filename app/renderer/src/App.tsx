@@ -6,6 +6,7 @@ import { NeuralScene } from './neural/Scene.tsx'
 import { FloatingLayer } from './ui/Floating.tsx'
 import { CommandBar } from './ui/CommandBar.tsx'
 import { Particles } from './ui/Particles.tsx'
+import { ThemePicker } from './ui/ThemePicker.tsx'
 import { Caption } from './ui/Caption.tsx'
 import { CodeView } from './ui/CodeView.tsx'
 import { ProjectsView } from './ui/ProjectsView.tsx'
@@ -85,13 +86,28 @@ export function App() {
     }).catch(() => {})
     watchPanels()
     const d = setInterval(watchPanels, 2000)
+    // What the agent asks of the interface (theme, screen, switches, cards). The first poll only learns the current sequence number, so a reload never replays old requests.
+    let since = -1
+    const watchUi = () => void api.uiActions(Math.max(since, 0)).then((r) => {
+      if (since >= 0 && r.actions.length) useApp.getState().applyUi(r.actions)
+      since = r.seq
+    }).catch(() => {})
+    watchUi()
+    const u = setInterval(watchUi, 700)
     // Global hotkey / tray menu: start listening.
     const offListen = window.jarvis?.app?.onListen(() => void useApp.getState().startListen())
     const a = setInterval(() => void refresh(), 4000)
     const b = setInterval(() => void pollAudit(), 1500)
     const c = setInterval(() => void probe(), 60000)
-    return () => (clearInterval(a), clearInterval(b), clearInterval(c), clearInterval(d), offListen?.())
+    return () => (clearInterval(a), clearInterval(b), clearInterval(c), clearInterval(d), clearInterval(u), offListen?.())
   }, [refresh, pollAudit, probe, loadProjects])
+
+  // tell the bridge what the window shows, so the agent can answer "which theme am I using?"
+  const { theme, speak, spend, sensitive } = useApp()
+  useEffect(() => {
+    const id = setTimeout(() => void api.uiReport({ view, theme, speak, spend, sensitive }).catch(() => {}), 300)
+    return () => clearTimeout(id)
+  }, [view, theme, speak, spend, sensitive])
 
   return (
     <div className="app" data-collapsed={collapsed}>
@@ -105,6 +121,7 @@ export function App() {
         </div>
         <div className="topbar-right">
           <Stats />
+          <ThemePicker />
           <div className="conn" data-ok={bridgeOk}><span className="dot" data-tone={bridgeOk ? 'ok' : 'bad'} aria-hidden />{bridgeOk ? 'Bridge conectado' : bridgeErr ? 'Bridge recusou' : 'Bridge desconectado'}</div>
         </div>
       </header>

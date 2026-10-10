@@ -5,6 +5,9 @@ export const BASE: string = import.meta.env.VITE_BRIDGE_URL ?? 'http://127.0.0.1
 export type CheckState = 'ok' | 'fail' | 'unknown' | 'skipped'
 export interface Check { state: CheckState; detail?: string; latencyMs?: number }
 
+/** What the agent asks of the interface; the window applies it (see store.applyUi). */
+export interface UiAction { seq: number; type: 'theme' | 'view' | 'set' | 'card'; id?: string; key?: string; value?: boolean; title?: string; body?: { type: string; [k: string]: unknown } }
+
 export interface ProviderView {
   id: string
   label: string
@@ -189,6 +192,8 @@ export const api = {
   agentAccess: () => call<AgentAccess>('GET', 'agent/access'),
   agentAccessSet: (body: { tool?: string; on?: boolean; addRoot?: string; label?: string; removeRoot?: string }) => call<AgentAccess>('POST', 'agent/access', body),
   alerts: () => call<AgentAlert[]>('GET', 'agent/alerts'),
+  uiActions: (since: number) => call<{ seq: number; actions: UiAction[] }>('GET', `agent/ui-actions?since=${since}`),
+  uiReport: (s: { view: string; theme: string; speak: boolean; spend: boolean; sensitive: boolean }) => call<{ ok: boolean }>('POST', 'agent/ui-report', s),
   monitor: () => call<MonitorView>('GET', 'monitor/summary'),
   agentTool: (tool: string, args: object = {}, confirmed = false) => call<ToolRun>('POST', 'agent/tool', { tool, args, confirmed }),
   routerInfo: () => call<{ endpoint: string; token: string; spend: boolean }>('POST', 'router/info'),

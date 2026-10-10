@@ -5,6 +5,9 @@ import { mediaUrls, parseIntent } from './intents.ts'
 import { listenOnce } from './voice/listen.ts'
 import { trackMic, trackSynthetic } from './voice/level.ts'
 import { chime } from './voice/mic.ts'
+import { applyTheme, savedTheme, THEMES } from './theme.ts'
+import { setPalette } from './neural/palette.ts'
+import type { UiAction } from './api.ts'
 
 import type { ProjectGraph } from '../../electron/projects.ts'
 import type { AgentEvent, Metrics } from '../../electron/transcripts.ts'
@@ -64,6 +67,11 @@ interface State {
   setView: (v: View) => void
   select: (id: string | null) => void
   toggle: (k: 'sensitive' | 'spend' | 'speak') => void
+  /** Colour theme id (see theme.ts); it is remembered between sessions and the agent can change it by voice or text. */
+  theme: string
+  setTheme: (id: string) => void
+  /** Things the agent asked of the interface (theme, screen, switches, cards). */
+  applyUi: (actions: UiAction[]) => void
   refresh: () => Promise<void>
   probe: () => Promise<void>
   pollAudit: () => Promise<void>
@@ -205,6 +213,17 @@ export const useApp = create<State>((set, get) => ({
   setView: (view) => set({ view }),
   select: (selected) => set({ selected }),
   toggle: (k) => set((s) => ({ [k]: !s[k] }) as Partial<State>),
+  theme: savedTheme(),
+  setTheme: (id) => { if (!THEMES.some((t) => t.id === id)) return; applyTheme(id); setPalette(id); set({ theme: id }) },
+  applyUi: (actions) => {
+    const VIEWS: View[] = ['home', 'chat', 'code', 'projects', 'ia', 'agent', 'missions', 'panels', 'connectors', 'mcp', 'ais', 'system', 'voice']
+    for (const a of actions) {
+      if (a.type === 'theme' && typeof a.id === 'string') get().setTheme(a.id)
+      else if (a.type === 'view' && VIEWS.includes(a.id as View)) get().setView(a.id as View)
+      else if (a.type === 'set' && (a.key === 'speak' || a.key === 'spend' || a.key === 'sensitive')) set({ [a.key]: a.value === true } as Partial<State>)
+      else if (a.type === 'card' && a.body && (a.body.type === 'status' || a.body.type === 'text')) { get().setView('home'); get().addCard(String(a.title ?? 'JARVIS'), a.body as CardBody) }
+    }
+  },
 
   refresh: async () => {
     if (refreshing) return

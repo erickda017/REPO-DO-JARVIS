@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto'
 import { redact } from '../command/redact.mjs'
-import { quickAction } from './rapido.mjs'
+import { quickAction } from './comandos.mjs'
 
 const clip = (s, n) => (String(s).length > n ? String(s).slice(0, n) + '…' : String(s))
 
@@ -194,7 +194,7 @@ export function createAgent({ router, tools, access, audit, flags = null, person
     const succeeded = new Map()
     const stepLimit0 = job.maxSteps ?? maxSteps
     // Only a bare, direct request with a tool that is on; anything else (a group switched off, a role, a conversation) goes to the model.
-    const q0 = !job.role && job.history.length === 0 && (!job.guardText || job.guardText === job.text) ? quickAction(job.text) : null
+    const q0 = (!job.role || job.quickText) && job.history.length === 0 && (job.quickText || !job.guardText || job.guardText === job.text) ? quickAction(job.quickText ?? job.text) : null
     const quick = q0 && Object.hasOwn(tools, q0.tool) && access.allows(tools[q0.tool].group) && !outside(job, tools[q0.tool]) ? q0 : null
     for (let n = 0; n < stepLimit0; n++) {
       if ((job.error = stopped())) break
@@ -203,7 +203,8 @@ export function createAgent({ router, tools, access, audit, flags = null, person
         // A plain "abra o navegador" needs no model: the tool call is built here and goes through the same gates below.
         reply = quick && n === 0 ? { text: JSON.stringify({ action: 'tool', tool: quick.tool, args: quick.args, why: 'pedido direto', then: quick.then }), provider: 'atalho', model: 'sem modelo' } : await ask(messages, system, job)
       } catch (e) {
-        job.error = job.cancelled ? 'Cancelado pelo usuário.' : String(e?.message ?? e).slice(0, 300)
+        job.error = job.cancelled ? 'Cancelado pelo usuário.' : String(e?.message ?? e).slice(0, 700)
+        if (!job.cancelled && Array.isArray(e?.attempts)) job.noModel = true // no AI could answer: retrying the step or replanning cannot help
         break
       }
       // A model call can take a minute; the Stop button / the deadline apply as soon as it returns, before any tool runs.
@@ -281,7 +282,10 @@ export function createAgent({ router, tools, access, audit, flags = null, person
         observe({ ok: true, verified: r.verified, evidence: r.evidence, data: r.data })
         audit?.record('agent.step', { tool: act.tool, ok: true, verified: r.verified })
         // A single simple action that worked and was not disproved: the sentence the model prepared IS the answer (no second model call).
-        if (act.then && tool.risk === 'write' && r.verified !== false && !taintAsk) { finalText = act.then; break }
+        if (quick && n === 0) {
+          // A ready-made command: its own sentence (built from the tool's real data) is the answer, whatever the tool's risk, once it ran and was not disproved.
+          if (r.verified !== false && !taintAsk) { try { finalText = quick.say ? quick.say(r) : quick.then } catch { finalText = quick.then ?? 'Feito.' } break }
+        } else if (act.then && tool.risk === 'write' && r.verified !== false && !taintAsk) { finalText = act.then; break }
       } catch (e) {
         const msg = String(e?.message ?? e).slice(0, 300)
         failures.set(key, (failures.get(key) ?? 0) + 1)
@@ -339,10 +343,10 @@ export function createAgent({ router, tools, access, audit, flags = null, person
   }
   const api = {
     tools,
-    run({ text, history = [], sensitive = false, confirmSpend = false, audit: auditOn, role = null, meta = null, maxSteps: stepCap, maxTokens: tokenCap, guardText }) {
+    run({ text, history = [], sensitive = false, confirmSpend = false, audit: auditOn, role = null, meta = null, maxSteps: stepCap, maxTokens: tokenCap, guardText, quickText }) {
       const t = String(text ?? '').trim()
       if (!t) throw new Error('empty request')
-      const job = { id: randomUUID(), text: t.slice(0, 4000), history: history.filter((m) => (m.role === 'user' || m.role === 'assistant') && typeof m.content === 'string').slice(-10).map((m) => ({ role: m.role, content: m.content.slice(0, 2000) })), sensitive: Boolean(sensitive), confirmSpend: Boolean(confirmSpend), audit: auditOn, status: 'running', steps: [], pending: null, result: null, partial: null, abort: new AbortController(), startedAt: clock(), role, meta, guardText, maxSteps: stepCap, maxTokens: tokenCap, usage: { inputTokens: 0, outputTokens: 0, calls: 0 } }
+      const job = { id: randomUUID(), text: t.slice(0, 4000), history: history.filter((m) => (m.role === 'user' || m.role === 'assistant') && typeof m.content === 'string').slice(-10).map((m) => ({ role: m.role, content: m.content.slice(0, 2000) })), sensitive: Boolean(sensitive), confirmSpend: Boolean(confirmSpend), audit: auditOn, status: 'running', steps: [], pending: null, result: null, partial: null, abort: new AbortController(), startedAt: clock(), role, meta, guardText, quickText, maxSteps: stepCap, maxTokens: tokenCap, usage: { inputTokens: 0, outputTokens: 0, calls: 0 } }
       job.finished = new Promise((r) => (job.resolveFinished = r))
       jobs.set(job.id, job)
       if (jobs.size > 40) jobs.delete(jobs.keys().next().value)
@@ -358,7 +362,7 @@ export function createAgent({ router, tools, access, audit, flags = null, person
     view(id) {
       const j = jobs.get(id)
       if (!j) return null
-      return { id: j.id, status: j.status, steps: j.steps, pending: j.pending ? { id: j.pending.id, tool: j.pending.tool, message: j.pending.message } : null, result: j.result, provider: j.provider ?? null, model: j.model ?? null, models: j.models ?? [], partial: j.partial || null, usage: j.usage, role: j.role?.name ?? null, meta: j.meta }
+      return { id: j.id, status: j.status, steps: j.steps, pending: j.pending ? { id: j.pending.id, tool: j.pending.tool, message: j.pending.message } : null, result: j.result, provider: j.provider ?? null, model: j.model ?? null, models: j.models ?? [], noModel: j.noModel === true, partial: j.partial || null, usage: j.usage, role: j.role?.name ?? null, meta: j.meta }
     },
     /** Resolves with the final view when the job is done (used by the mission orchestrator). */
     wait: (id) => jobs.get(id)?.finished.then(() => api.view(id)),

@@ -35,7 +35,7 @@ export function CodeView() {
     if (!jv || !host.current) return
     const t = new Terminal({
       fontFamily: "'Cascadia Mono', Consolas, monospace", fontSize: 14, cursorBlink: true, allowProposedApi: true, scrollback: 5000,
-      theme: { background: '#030a10', foreground: '#d7f3ff', cursor: '#4fd8ff', selectionBackground: 'rgba(79,216,255,.3)', black: '#0b1b26', brightBlack: '#4b6a78' },
+      theme: (() => { const v = (n: string, d: string) => getComputedStyle(document.documentElement).getPropertyValue(n).trim() || d; return { background: v('--bg-term', '#030a10'), foreground: v('--text', '#d7f3ff'), cursor: v('--cyan', '#4fd8ff'), selectionBackground: `rgba(${v('--acc', '79,216,255')},.3)`, black: '#0b1b26', brightBlack: '#4b6a78' } })(),
     })
     const f = new FitAddon()
     t.loadAddon(f)

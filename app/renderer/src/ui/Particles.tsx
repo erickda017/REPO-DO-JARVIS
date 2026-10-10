@@ -1,5 +1,6 @@
 import { useEffect, useRef } from 'react'
 import { voice } from '../voice/level.ts'
+import { palette } from '../neural/palette.ts'
 
 /**
  * Ambient motes drifting across the whole interface, with faint links between close ones. Pure canvas 2D,
@@ -38,13 +39,13 @@ export function Particles() {
         if (px[i] < -10) px[i] = w + 10; else if (px[i] > w + 10) px[i] = -10
         if (py[i] < -10) py[i] = h + 10; else if (py[i] > h + 10) py[i] = -10
         const tw = 0.35 + 0.35 * Math.sin(now / 1400 + ph[i])
-        ctx.fillStyle = `rgba(120,225,255,${Math.min(1, tw * 0.55 * (1 + lv * 1.8))})`
+        ctx.fillStyle = `rgba(${palette.mote},${Math.min(1, tw * 0.55 * (1 + lv * 1.8))})`
         const sz = 2 + lv * 2
         ctx.fillRect(px[i] - sz / 2, py[i] - sz / 2, sz, sz)
         for (let j = i + 1; j < N; j++) {
           const dx = px[i] - px[j], dy = py[i] - py[j], d2 = dx * dx + dy * dy
           if (d2 < 130 * 130) {
-            ctx.strokeStyle = `rgba(79,216,255,${(1 - Math.sqrt(d2) / 130) * (0.16 + lv * 0.4)})`
+            ctx.strokeStyle = `rgba(${palette.acc},${(1 - Math.sqrt(d2) / 130) * (0.16 + lv * 0.4)})`
             ctx.beginPath(); ctx.moveTo(px[i], py[i]); ctx.lineTo(px[j], py[j]); ctx.stroke()
           }
         }

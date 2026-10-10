@@ -61,6 +61,9 @@ Detalhes em [docs/IA_LOCAL_E_APIS.md](docs/IA_LOCAL_E_APIS.md).
 - **Conversa e agente:** responde por texto ou voz e usa ferramentas do PC (arquivos, processos, disco, janelas) com um sistema de
   permissões. Leitura é livre; **qualquer mudança pede a sua confirmação**.
 - **Pesquisa na web:** ler a internet não pede autorização. Ele avisa "Só um momento, buscando na web…" e mostra as fontes.
+- **Comandos prontos (sem gastar IA):** hora, estado do PC, volume, mídia, print, bloquear, abrir pastas, analisar uma pasta, desligar
+  com confirmação, abrir apps e sites, trocar o **tema de cores** (azul, vermelho, roxo, lilás, magenta, rosa…), abrir telas e ligar/desligar
+  chaves da interface. Respondem na hora, por texto ou voz. Veja [docs/COMANDOS.md](docs/COMANDOS.md).
 - **Missões:** tarefas maiores divididas entre agentes especializados.
 - **Painéis:** o JARVIS desenha painéis na tela com dados reais.
 - **Voz:** ouve pelo microfone (escolha o microfone e teste o nível na tela de Voz) e fala. Atalho global: `Ctrl+Alt+J`.

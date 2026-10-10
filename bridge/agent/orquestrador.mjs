@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto'
 import { mkdir, readdir, readFile, rename, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { extractJson } from './agent.mjs'
+import { quickAction } from './comandos.mjs'
 import { redactString } from '../command/redact.mjs'
 
 /**
@@ -200,6 +201,8 @@ export function createOrchestrator({ router, agent, access, memory = null, audit
     const jobId = agent.run({
       text: stepPrompt(m, s, opts), sensitive: m.options.sensitive, confirmSpend: m.options.confirmSpend, audit: false,
       role: { name: s.role, tools: role.tools, tier: role.tier, prompt: role.prompt }, meta: { mission: m.id, step: s.id },
+      // a single general step that is a ready-made command ("abra o chrome", "analise a pasta X") needs no model at all
+      quickText: s.role === 'geral' && !opts.retryNote ? s.goal : undefined,
       // The mission text and earlier results contain action verbs that would trip the \"needs a tool\" guard: judge only this step's goal (auditors must always look at the real state first).
       guardText: role.readOnly && s.role === 'auditor' ? 'leia e confira o estado real' : s.goal,
       maxSteps: role.maxSteps, maxTokens: Math.max(2000, Math.min(budgetLeft(m), Math.floor(m.limits.maxTokens / 2))),
@@ -214,7 +217,7 @@ export function createOrchestrator({ router, agent, access, memory = null, audit
     // Detail goes to a file; the plan only keeps a short summary (agents share references, not whole contexts).
     const file = dir ? join(dir, m.id, `${s.id}-${s.attempts}.json`) : null
     if (file) { await mkdir(join(dir, m.id), { recursive: true }).catch(() => {}); await writeFile(file, JSON.stringify({ step: s.id, role: s.role, result: r, trail }, null, 2)).catch(() => {}) }
-    s.result = { status: r?.status ?? 'nao_concluido', summary: clip(r?.text ?? '', 600), notes: r?.notes ?? [], evidence: r?.evidence ?? [], toolCalls: trail.length, file }
+    s.result = { status: r?.status ?? 'nao_concluido', summary: clip(r?.text ?? '', 900), notes: r?.notes ?? [], evidence: r?.evidence ?? [], toolCalls: trail.length, file, shortcut: view.provider === 'atalho' }
     s.usage = view.usage
     s.endedAt = nowIso(clock)
     return { view, trail }
@@ -228,6 +231,7 @@ export function createOrchestrator({ router, agent, access, memory = null, audit
     for (;;) {
       const { view, trail } = await runStep(m, s, { retryNote, answer })
       const r = view.result
+      if (view.noModel) { s.status = 'failed'; s.noProgress = true; note(m, `${s.id}: nenhuma IA respondeu; sem nova tentativa`, 'warn'); return }
       if (stopReason(m)) { s.status = 'failed'; s.result.summary = `interrompida: ${stopReason(m)}`; return }
       if (r?.status === 'pergunta') { s.status = 'asking'; s.question = r.text; return }
       if (r?.status === 'concluido') {
@@ -278,6 +282,7 @@ export function createOrchestrator({ router, agent, access, memory = null, audit
    */
   async function isSingleStep(goal, options = {}) {
     const g = String(goal ?? '').trim()
+    if (fast && g && quickAction(g)) return true // a ready-made command is one step by definition
     if (!fast || !g || g.length > 300 || SEQUENCE.test(g) || STRUCTURED.test(g)) return false
     if (g.length <= 120) return true
     try {
@@ -354,7 +359,7 @@ export function createOrchestrator({ router, agent, access, memory = null, audit
       let verdict = 'inconclusivo'
       if (doneAll && !anyFailed && !stopReason(m)) {
         // Every action already proved by its own tool: an auditor job (several model calls) would only repeat it.
-        const proven = m.steps.filter((s) => s.status === 'done').every((s) => (s.result?.evidence ?? []).every((e) => e.verified === true))
+        const proven = m.steps.filter((s) => s.status === 'done').every((s) => s.result?.shortcut || (s.result?.evidence ?? []).every((e) => e.verified === true))
         if (fast && proven) { verdict = 'confere'; m.verification = { ...(m.verification ?? {}), verdict, text: 'Todas as ações foram verificadas pelas próprias ferramentas.' }; note(m, 'verificação independente dispensada: as ferramentas já provaram cada ação') }
         else verdict = await verify(m)
         if (verdict === 'divergente' && m.replans < m.limits.maxReplans && !stopReason(m)) {

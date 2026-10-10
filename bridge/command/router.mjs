@@ -91,6 +91,26 @@ export function createRouter({ registry, health, audit, clock = Date.now, cooldo
     return { list: out.sort((a, b) => rank(a) - rank(b) || a.priority - b.priority), skipped }
   }
 
+
+  const KIND_PT = { quota: 'cota esgotada', rate_limit: 'limite de uso atingido', auth: 'chave recusada', timeout: 'sem resposta a tempo', network: 'sem conexão', bad_response: 'resposta vazia ou inválida', server: 'erro do servidor', model_not_found: 'modelo inexistente', bad_request: 'pedido recusado', unconfigured: 'não configurada' }
+  /** Why nothing answered, one clause per provider that mattered (failed, cooling down, or paid without permission). */
+  function explainAttempts(attempts) {
+    const seen = new Map()
+    for (const a of attempts) {
+      if (seen.has(a.provider) && !a.error) continue
+      let why = null
+      if (a.error) why = `${KIND_PT[a.error.kind] ?? a.error.kind}${a.error.message && !/^no response|^could not/.test(a.error.message) ? ` (${String(a.error.message).replace(/\s+/g, ' ').slice(0, 70)})` : ''}`
+      else if (/cooling/.test(a.skipped ?? '')) { const mins = Math.max(1, Math.ceil(((cooldown.get(a.provider) ?? [...cooldown].find(([k]) => k.startsWith(`${a.provider}|`))?.[1] ?? 0) - clock()) / 60_000)); why = `em pausa por falha recente (volta em ~${mins} min)` }
+      else if (/paid provider/.test(a.skipped ?? '')) why = 'paga: marque Grátis na tela IAs ou ligue "Autorizo gasto"'
+      else if (/no model/.test(a.skipped ?? '')) why = 'sem modelo escolhido'
+      if (why) seen.set(a.provider, why)
+    }
+    return [...seen].map(([p, w]) => `${p}: ${w}`).join('; ')
+  }
+  function failureMessage(attempts) {
+    const why = explainAttempts(attempts)
+    return `all eligible providers failed${why ? ` — nenhuma IA respondeu. ${why}` : ''}`
+  }
   /** Validation + provider selection shared by run and runStream. */
   function prepare(request) {
     const req = { capability: 'chat', sensitive: false, confirmSpend: false, ...request }
@@ -149,8 +169,7 @@ export function createRouter({ registry, health, audit, clock = Date.now, cooldo
         if ((!e.retryable && !SKIPPABLE.has(e.kind)) || !p.allowFallback) throw new RouteError(`${p.id} failed: ${e.message}`, attempts)
       }
     }
-    const last = [...attempts].reverse().find((a) => a.error)?.error
-    throw new RouteError(last && attempts.filter((a) => a.error).length === 1 ? `${last.provider} failed: ${last.message}` : 'all eligible providers failed', attempts)
+    throw new RouteError(failureMessage(attempts), attempts)
   }
 
   /**
@@ -219,8 +238,7 @@ export function createRouter({ registry, health, audit, clock = Date.now, cooldo
         req.signal?.removeEventListener('abort', relay)
       }
     }
-    const last = [...attempts].reverse().find((a) => a.error)?.error
-    throw new RouteError(last && attempts.filter((a) => a.error).length === 1 ? `${last.provider} failed: ${last.message}` : 'all eligible providers failed', attempts)
+    throw new RouteError(failureMessage(attempts), attempts)
   }
   /**
    * Chat with NATIVE tool calling (OpenAI-format messages in, text and tool calls out), same eligibility, spend gate and
@@ -283,8 +301,7 @@ export function createRouter({ registry, health, audit, clock = Date.now, cooldo
         req.signal?.removeEventListener('abort', relay)
       }
     }
-    const last = [...attempts].reverse().find((a) => a.error)?.error
-    throw new RouteError(last && attempts.filter((a) => a.error).length === 1 ? `${last.provider} failed: ${last.message}` : 'all eligible providers failed', attempts)
+    throw new RouteError(failureMessage(attempts), attempts)
   }
 
   /**

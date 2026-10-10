@@ -5,13 +5,14 @@ import { Bloom, EffectComposer } from '@react-three/postprocessing'
 import * as THREE from 'three'
 import { useApp } from '../store.ts'
 import { voice } from '../voice/level.ts'
+import { palette } from './palette.ts'
 import { Activity, buildCloud, layoutEntities, mulberry32, nearestNeurons, TONE_COLOR, type EntityNode } from './graph.ts'
 import { EXT_COLOR, findNode, layoutProject, projectCenter } from './projectGraph.ts'
 import type { ProjectGraph } from '../../../electron/projects.ts'
 
 const reduced = () => typeof matchMedia === 'function' && matchMedia('(prefers-reduced-motion: reduce)').matches
-const BASE = new THREE.Color(0.025, 0.11, 0.16)
-const HOT = new THREE.Color(0.5, 0.95, 1.0)
+const BASE = palette.base // shared with the theme: setPalette() mutates these in place
+const HOT = palette.hot
 
 const RADIUS: Record<string, number> = { core: 0.42, ai: 0.27, service: 0.19, project: 0.21, tasks: 0.19, timer: 0.19, voice: 0.19 }
 
@@ -63,8 +64,8 @@ function ProjectCloud({ g, index, total }: { g: ProjectGraph; index: number; tot
     const cc = lineGeo.getAttribute('color') as THREE.BufferAttribute
     g.edges.forEach(([a, b, kind], k) => {
       const v = Math.max(f[a], f[b])
-      if (kind === 'tree') col.setRGB(0.025, 0.09, 0.13)
-      else col.setRGB(0.07, 0.26, 0.32)
+      if (kind === 'tree') col.setRGB(...palette.tree)
+      else col.setRGB(...palette.link)
       col.multiplyScalar(1 + v * 3 + voice.level * 1.2)
       cc.setXYZ(k * 2, col.r, col.g, col.b)
       cc.setXYZ(k * 2 + 1, col.r, col.g, col.b)
@@ -297,11 +298,11 @@ function EntityMesh({ node, flash, onPick }: { node: EntityNode; flash: React.Re
         <>
           <mesh ref={ring}>
             <torusGeometry args={[0.72, 0.012, 8, 64]} />
-            <meshBasicMaterial color={[0.6, 2, 2.4]} toneMapped={false} />
+            <meshBasicMaterial color={palette.ringA} toneMapped={false} />
           </mesh>
           <mesh rotation={[Math.PI / 2.4, 0, 0]}>
             <torusGeometry args={[0.95, 0.008, 8, 64]} />
-            <meshBasicMaterial color={[0.3, 1, 1.3]} toneMapped={false} />
+            <meshBasicMaterial color={palette.ringB} toneMapped={false} />
           </mesh>
         </>
       )}
@@ -317,10 +318,11 @@ function EntityMesh({ node, flash, onPick }: { node: EntityNode; flash: React.Re
 }
 
 export function NeuralScene() {
+  const theme = useApp((s) => s.theme) // a theme change rebuilds the canvas (key), so every colour is read again
   useEffect(() => () => void (document.body.style.cursor = ''), [])
   return (
-    <Canvas camera={{ position: [0, 0.8, 15.5], fov: 48 }} dpr={[1, 1.5]} gl={{ antialias: false, powerPreference: 'high-performance' }} aria-label="Rede neural: nós grandes são entidades reais, a nuvem é uma metáfora visual">
-      <color attach="background" args={['#02060a']} />
+    <Canvas key={theme} camera={{ position: [0, 0.8, 15.5], fov: 48 }} dpr={[1, 1.5]} gl={{ antialias: false, powerPreference: 'high-performance' }} aria-label="Rede neural: nós grandes são entidades reais, a nuvem é uma metáfora visual">
+      <color attach="background" args={[palette.bg]} />
       <World />
       <OrbitControls enablePan={false} enableDamping minDistance={6} maxDistance={26} maxPolarAngle={Math.PI * 0.72} minPolarAngle={Math.PI * 0.28} rotateSpeed={0.5} />
       <EffectComposer>

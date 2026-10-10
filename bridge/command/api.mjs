@@ -46,7 +46,7 @@ const PERSONA = personaText() + '\n\n' +
   'Responda em português do Brasil, de forma direta e curta ' +
   '(no máximo duas ou três frases, a menos que peçam mais). Não invente fatos nem ações que não executou.'
 
-export function createApi({ openai, health, router, services, projects, tasks, timer, audit, voice, settings, access, monitor, profiles, agent, alerts, missions, memory, genui, connectors, google, mcp, allowNoOrigin }) {
+export function createApi({ uiBus, openai, health, router, services, projects, tasks, timer, audit, voice, settings, access, monitor, profiles, agent, alerts, missions, memory, genui, connectors, google, mcp, allowNoOrigin }) {
   const PREFIX = '/api/command/'
 
   const routes = {
@@ -154,6 +154,9 @@ export function createApi({ openai, health, router, services, projects, tasks, t
     },
     // Desktop agent
     'POST agent/run': async (b) => ({ jobId: agent.run({ text: b.text, history: Array.isArray(b.history) ? b.history : [], sensitive: b.sensitive === true, confirmSpend: b.confirm === true }) }),
+    // The window polls what the agent asked of the interface and reports what it is showing.
+    'GET agent/ui-actions': async (q) => uiBus.pull(Number(q.since) || 0),
+    'POST agent/ui-report': async (b) => { uiBus.report({ view: String(b.view ?? '').slice(0, 20), theme: String(b.theme ?? '').slice(0, 20), speak: b.speak === true, spend: b.spend === true, sensitive: b.sensitive === true }); return { ok: true } },
     'GET agent/job': async (q) => agent.view(String(q.id ?? '')) ?? Promise.reject(new HttpError(404, 'unknown job')),
     'POST agent/confirm': async (b) => ({ ok: agent.confirm(String(b.id ?? ''), b.approve === true) }),
     'GET agent/access': async () => ({ ...access.snapshot(), autoDev: settings.flags.get('autoDev') === true }),
