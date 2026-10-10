@@ -17,7 +17,7 @@ const MODEL_RE = /^[\w.:/-]{1,120}$/
 export function createSettings({ file, getRegistry, baseEnv = process.env, audit } = {}) {
   // The registry is built with this store's env, so it is looked up lazily.
   const registry = { list: () => getRegistry().list(), get: (id) => getRegistry().get(id), update: (id, o) => getRegistry().update(id, o) }
-  let data = { secrets: {}, overrides: {} }
+  let data = { secrets: {}, overrides: {}, flags: {} }
   let loaded = !file
   let chain = Promise.resolve()
 
@@ -51,11 +51,20 @@ export function createSettings({ file, getRegistry, baseEnv = process.env, audit
       loaded = true
       try {
         const j = JSON.parse(await readFile(file, 'utf8'))
-        data = { secrets: j.secrets ?? {}, overrides: j.overrides ?? {} }
+        data = { secrets: j.secrets ?? {}, overrides: j.overrides ?? {}, flags: j.flags ?? {} }
       } catch {
         /* first run */
       }
       apply()
+    },
+
+    /** Plain on/off switches the owner sets from the app (e.g. routerSpend: let outside programs use paid providers). */
+    flags: { get: (k) => data.flags[k], all: () => ({ ...data.flags }) },
+    async setFlag(k, v) {
+      if (!/^[a-zA-Z]{2,30}$/.test(k)) throw new Error('bad flag name')
+      data.flags[k] = Boolean(v)
+      await persist()
+      audit?.record('settings.flag', { k, v: Boolean(v) })
     },
 
     keys() {

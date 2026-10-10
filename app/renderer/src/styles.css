@@ -352,3 +352,29 @@ input, select { border-radius: var(--r-sm); }
 .command-row .opts { grid-area: opts; flex-direction: row; align-self: center; }
 .command-row .send { grid-area: send; align-self: center; }
 .legend { left: auto; right: 20px; width: 230px; text-align: right; bottom: 20px; }
+
+/* Agent: job card, access, monitor */
+.job .steps { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; max-height: 260px; overflow: auto; }
+.job .steps li { display: flex; gap: 9px; align-items: flex-start; }
+.step-ico { width: 18px; height: 18px; display: grid; place-items: center; border-radius: 50%; border: 1.5px solid var(--dim); flex: none; margin-top: 1px; }
+.job li[data-ok='ok'] .step-ico { border-color: var(--ok); color: var(--ok); }
+.job li[data-ok='warn'] .step-ico { border-color: var(--warn); color: var(--warn); }
+.job li[data-ok='bad'] .step-ico { border-color: var(--bad); color: var(--bad); }
+.job li[data-ok='run'] .step-ico { border-color: var(--cyan); color: var(--cyan); }
+.job .block { display: block; overflow-wrap: anywhere; }
+.job .confirm { margin-top: 12px; padding: 12px; border: 1px solid var(--warn); border-radius: var(--r-md); background: rgba(255, 203, 92, 0.07); }
+.job .confirm p { margin: 0 0 10px; }
+.job .notes { margin: 10px 0 0; padding-left: 18px; color: var(--warn); }
+.spin { animation: spin 0.9s linear infinite; }
+.sparks { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 8px; }
+.spark { position: relative; height: 84px; padding: 8px 10px; border: 1px solid rgba(92, 214, 255, 0.16); border-radius: var(--r-md); background: rgba(5, 16, 26, 0.6); overflow: hidden; }
+.spark svg { position: absolute; inset: 8px 10px 8px 10px; width: calc(100% - 20px); height: calc(100% - 16px); }
+.spark polyline { stroke: var(--cyan); stroke-width: 1.5; opacity: 0.85; }
+.spark span { position: relative; } .spark b { position: absolute; right: 10px; top: 6px; font: 600 16px var(--display); color: var(--cyan-hi); }
+.disk { padding: 12px 14px; display: flex; flex-direction: column; gap: 8px; }
+.disk[data-low='true'] { border-color: var(--warn); }
+.bar { height: 6px; border-radius: 3px; background: rgba(92, 214, 255, 0.12); overflow: hidden; }
+.bar i { display: block; height: 100%; background: linear-gradient(90deg, var(--cyan), rgba(79, 216, 255, 0.4)); }
+.disk[data-low='true'] .bar i { background: var(--warn); }
+
+.envbox { margin: 8px 0; padding: 12px 14px; background: #030a10; border: 1px solid rgba(92,214,255,.2); border-radius: var(--r-md); font: 13px/1.6 Consolas, monospace; color: var(--cyan-hi); overflow: auto; user-select: all; }

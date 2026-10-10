@@ -1,12 +1,12 @@
 import { create } from 'zustand'
-import { api, ApiError, speakViaBridge, type AuditEntry, type ChatTurn, type Overview, type VoiceStatus } from './api.ts'
+import { api, ApiError, speakViaBridge, type AgentJob, type AuditEntry, type ChatTurn, type Overview, type VoiceStatus } from './api.ts'
 import { entityForAudit } from './neural/graph.ts'
 import { mediaUrls, parseIntent } from './intents.ts'
 
 import type { ProjectGraph } from '../../electron/projects.ts'
 import type { AgentEvent, Metrics } from '../../electron/transcripts.ts'
 
-export type View = 'home' | 'chat' | 'code' | 'projects' | 'ia' | 'ais' | 'system' | 'voice'
+export type View = 'home' | 'chat' | 'code' | 'projects' | 'ia' | 'agent' | 'ais' | 'system' | 'voice'
 export interface Touch { id: number; path: string; at: number }
 
 export type CardBody =
@@ -33,6 +33,9 @@ interface State {
   spend: boolean
   speak: boolean
   caption: { id: number; text: string } | null
+  job: AgentJob | null
+  dismissJob: () => void
+  confirmJob: (approve: boolean) => Promise<void>
   collapsed: boolean
   toggleSidebar: () => void
   projects: ProjectGraph[]
@@ -56,6 +59,35 @@ interface State {
   send: (text: string) => Promise<void>
 }
 
+/**
+ * Every free-text request goes to the desktop agent (it answers plain chat directly and uses tools when a task or a
+ * measurement is asked). Falls back to the plain chat endpoint only when the bridge is an older one without the agent.
+ */
+async function askAgent(history: ChatTurn[], sensitive: boolean, spend: boolean, onJob: (j: AgentJob) => void) {
+  const last = history.at(-1)?.content ?? ''
+  let jobId: string
+  try {
+    ;({ jobId } = await api.agentRun(last, history.slice(0, -1), sensitive, spend))
+  } catch (e) {
+    if (!(e instanceof ApiError) || !/unknown command endpoint/.test(e.message)) throw e
+    const r = await api.chat(history, sensitive, spend)
+    return { text: r.text, provider: r.provider, meta: `${r.provider} · ${r.model} · ${r.latencyMs} ms`, steps: 0, jobId: '' }
+  }
+  const t0 = Date.now()
+  for (;;) {
+    await new Promise((r) => setTimeout(r, 600))
+    const j = await api.agentJob(jobId)
+    onJob(j)
+    if (j.status === 'done' && j.result) {
+      const label = { concluido: 'Concluído', parcial: 'Parcialmente concluído', nao_concluido: 'Não concluído', pergunta: 'Pergunta' }[j.result.status]
+      const tools = j.steps.length ? ` · ${j.steps.map((s) => s.tool).join(', ')}` : ''
+      return { text: j.result.text, provider: j.provider ?? 'agente', meta: `${label}${tools} · ${((Date.now() - t0) / 1000).toFixed(1)} s`, steps: j.steps.length, jobId }
+    }
+    if (Date.now() - t0 > 15 * 60_000) throw new ApiError('O agente demorou demais.')
+  }
+}
+
+const seenAlerts = new Set<string>()
 let seq = 0
 const MAX_CARDS = 7
 const seen = new Set<string>()
@@ -75,6 +107,12 @@ export const useApp = create<State>((set, get) => ({
   spend: false,
   speak: false,
   caption: null,
+  job: null,
+  dismissJob: () => set({ job: null }),
+  confirmJob: async (approve) => {
+    const p = get().job?.pending
+    if (p) await api.agentConfirm(p.id, approve).catch(() => {})
+  },
   collapsed: (() => { try { return localStorage.getItem('jarvis.sidebar') === 'collapsed' } catch { return false } })(),
   toggleSidebar: () =>
     set((s) => {
@@ -118,6 +156,13 @@ export const useApp = create<State>((set, get) => ({
     try {
       const [overview, voice] = await Promise.all([api.overview(), api.voice().catch(() => null)])
       set({ overview, voice, bridgeOk: true })
+      void api.alerts().then((list) => {
+        for (const a of list) {
+          if (seenAlerts.has(a.id + a.at)) continue
+          seenAlerts.add(a.id + a.at)
+          get().addCard(a.level === 'critical' ? 'Alerta: pouco espaço' : 'Aviso de armazenamento', { type: 'text', text: a.text, meta: new Date(a.at).toLocaleTimeString('pt-BR') })
+        }
+      }).catch(() => {})
     } catch {
       set({ bridgeOk: false })
     }
@@ -214,10 +259,11 @@ export const useApp = create<State>((set, get) => ({
           const history: ChatTurn[] = get()
             .messages.filter((m): m is Message & { role: 'user' | 'assistant' } => m.role !== 'error')
             .map((m) => ({ role: m.role, content: m.text }))
-          const r = await api.chat(history, st.sensitive, st.spend)
+          const r = await askAgent(history, st.sensitive, st.spend, (job) => set({ job: job.steps.length || job.pending ? job : null }))
           get().pulse('core')
           get().pulse(`ai:${r.provider}`)
-          say({ role: 'assistant', text: r.text, meta: `${r.provider} · ${r.model} · ${r.latencyMs} ms` })
+          say({ role: 'assistant', text: r.text, meta: r.meta })
+          if (r.steps > 0) setTimeout(() => set((x) => (x.job && x.job.status === 'done' && x.job.id === r.jobId ? { job: null } : {})), 14000)
           // The answer shows as a subtitle, not a card, and goes away when the voice stops (or after a reading time).
           const capId = ++seq
           set({ caption: { id: capId, text: r.text } })

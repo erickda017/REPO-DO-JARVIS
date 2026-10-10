@@ -108,6 +108,7 @@ const ALLOW_WRITES = process.env.JARVIS_ALLOW_WRITES === '1'
 const command = createCommand({ allowNoOrigin: ALLOW_NO_ORIGIN, envKey: () => baseElevenKey() })
 await command.voice.ready()
 await command.settings.ready()
+await command.access.ready()
 
 /**
  * The orchestrator model. Override with JARVIS_MODEL to trade quality for pace
@@ -673,7 +674,7 @@ function corsFor(req) {
   const headers = { vary: 'origin' }
   if (origin) {
     headers['access-control-allow-origin'] = origin
-    headers['access-control-allow-headers'] = 'content-type'
+    headers['access-control-allow-headers'] = 'content-type,x-jarvis-token'
   }
   return headers
 }
@@ -681,7 +682,20 @@ function corsFor(req) {
 // One HTTP server for both the speech proxy and the WebSocket upgrade.
 const http = await import('node:http')
 
+/**
+ * Set by the desktop app for the bridge it starts: a random per-launch secret the page gets through its preload.
+ * When present, every /api/command call must carry it, so a web page that merely sits on an allowed dev port (or a
+ * forged Origin header) cannot drive the agent. Standalone bridges (no app) keep the origin rule only.
+ */
+const APP_TOKEN = process.env.JARVIS_APP_TOKEN ?? ''
+
 const handleRequest = async (req, res) => {
+  // DNS-rebinding guard: only requests addressed to this machine by name or loopback address are served.
+  const hostName = String(req.headers.host ?? '').replace(/:\d+$/, '').toLowerCase()
+  if (!['localhost', '127.0.0.1', '[::1]'].includes(hostName)) {
+    res.writeHead(403)
+    return res.end('forbidden host')
+  }
   const origin = req.headers.origin
   if (origin && !originAllowed(origin)) {
     console.warn(`[jarvis] refused http request from origin ${origin}`)
@@ -695,7 +709,14 @@ const handleRequest = async (req, res) => {
     return res.end()
   }
 
-  if (req.url?.startsWith('/api/command/') && (await command.api.handle(req, res, cors))) return
+  if (req.url?.startsWith('/api/command/')) {
+    if (APP_TOKEN && req.headers['x-jarvis-token'] !== APP_TOKEN) {
+      res.writeHead(401, { ...cors, 'content-type': 'application/json' })
+      return res.end(JSON.stringify({ error: 'missing or wrong app token' }))
+    }
+    if (await command.api.handle(req, res, cors)) return
+  }
+  if (req.url?.startsWith('/v1/') && (await command.openai.handle(req, res))) return
 
   if (req.method === 'GET' && req.url === '/health') {
     // The browser reads this once at boot to decide which voice engine to use.
@@ -1019,7 +1040,9 @@ const wss = new WebSocketServer({
     done(true)
   },
 })
-server.listen(PORT)
+// Loopback only. The base project listened on every interface and relied on the Origin header alone, which any
+// non-browser client on the same network can forge; with the agent's tools behind this port that is not acceptable.
+server.listen(PORT, '127.0.0.1')
 
 console.log(`[jarvis] bridge listening on ws://localhost:${PORT}`)
 console.log(

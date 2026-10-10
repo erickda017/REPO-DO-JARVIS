@@ -314,3 +314,49 @@ test('spend gate: without authorisation a paid provider is skipped and the free 
   for (const want of ['claude-api', 'gemini', 'openai', 'deepseek', 'openrouter', 'groq', 'mistral']) assert.ok(ids.includes(want), want)
   assert.ok(withCatalog([]).every((p) => p.enabled === false && p.models.length === 0))
 })
+
+test('OpenAI-compatible door: token required, models listed, quota failover continues the work, paid use needs the switch', async () => {
+  const f = fakeFetch((u) => (u.includes('paid.test') ? { status: 429, body: { error: { message: 'You exceeded your current quota' } } } : { body: { choices: [{ message: { content: 'resposta do backup' } }], model: 'q', usage: { prompt_tokens: 3, completion_tokens: 2 } } }))
+  const cmd = createCommand({
+    persist: false,
+    fetch: f,
+    env: { PAID_KEY: 'sk-testtesttest' },
+    config: {
+      providers: [
+        { id: 'paid', type: 'openai-compat', baseUrl: 'http://paid.test/v1', apiKeyEnv: 'PAID_KEY', models: ['m'], capabilities: ['chat', 'coding'], priority: 1 },
+        { id: 'local', type: 'openai-compat', baseUrl: 'http://127.0.0.1:8082/v1', models: ['q'], capabilities: ['chat', 'coding'], priority: 9 },
+      ],
+      services: [], projects: [], dataDir: '/nonexistent',
+    },
+  })
+  const server = http.createServer((req, res) => cmd.openai.handle(req, res).then((h) => h || res.writeHead(404).end()))
+  await new Promise((r) => server.listen(0, '127.0.0.1', r))
+  const base = `http://127.0.0.1:${server.address().port}`
+  const token = await cmd.openai.token()
+  const call = (path, init = {}) => fetch(base + path, { ...init, headers: { 'content-type': 'application/json', ...(init.headers ?? {}) } })
+  const auth = { authorization: `Bearer ${token}` }
+  try {
+    assert.equal((await call('/v1/models')).status, 401)
+    assert.equal((await call('/v1/models', { headers: { authorization: 'Bearer wrong' } })).status, 401)
+    const models = await (await call('/v1/models', { headers: auth })).json()
+    assert.deepEqual(models.data.map((m) => m.id), ['auto', 'paid', 'local'])
+    const body = JSON.stringify({ model: 'auto', messages: [{ role: 'system', content: 'sys' }, { role: 'user', content: [{ type: 'text', text: 'oi' }] }] })
+    // paid use is OFF by default: the free local provider answers and the paid one is never called
+    let r = await call('/v1/chat/completions', { method: 'POST', headers: auth, body })
+    assert.equal(r.status, 200)
+    assert.equal((await r.json()).choices[0].message.content, 'resposta do backup')
+    assert.ok(!f.calls.some((c) => c.url.includes('paid.test')))
+    // switch paid use on: the paid account is out of quota, the router moves on to local and the work continues
+    await cmd.settings.setFlag('routerSpend', true)
+    r = await call('/v1/chat/completions', { method: 'POST', headers: auth, body })
+    const j = await r.json()
+    assert.equal(r.status, 200)
+    assert.equal(j.model.split('/')[0], 'local')
+    assert.ok(f.calls.some((c) => c.url.includes('paid.test')), 'the paid provider was tried first')
+    // stream:true gets a valid one-chunk SSE stream
+    const s = await (await call('/v1/chat/completions', { method: 'POST', headers: auth, body: JSON.stringify({ messages: [{ role: 'user', content: 'x' }], stream: true }) })).text()
+    assert.match(s, /data: \{.*resposta do backup.*\}\n\n.*data: \[DONE\]/s)
+  } finally {
+    server.close()
+  }
+})

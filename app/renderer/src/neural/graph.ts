@@ -148,8 +148,10 @@ function spread(nodes: EntityNode[]): EntityNode[] {
 export function layoutEntities(ov: Overview | null): EntityNode[] {
   const nodes: EntityNode[] = [{ id: 'core', kind: 'core', label: 'NÚCLEO', tone: ov ? 'ok' : 'unknown', pos: { x: 0, y: 0, z: 0 }, detail: 'Roteador de IAs' }]
   if (!ov) return nodes
-  ov.providers.forEach((p, i) =>
-    nodes.push({ id: `ai:${p.id}`, kind: 'ai', label: p.label.split('(')[0].trim(), tone: providerTone(p), pos: ring(i, ov.providers.length, 3.1, 1.2, 0.9 - (i % 2) * 1.8), detail: p.model ?? p.type }),
+  // Switched-off providers stay in the IAs screen; drawing them all would only add clutter to the scene.
+  const live = ov.providers.filter((p) => p.enabled)
+  live.forEach((p, i) =>
+    nodes.push({ id: `ai:${p.id}`, kind: 'ai', label: p.label.split('(')[0].trim(), tone: providerTone(p), pos: ring(i, live.length, 3.1, 1.2, 0.9 - (i % 2) * 1.8), detail: p.model ?? p.type }),
   )
   ov.services.forEach((s, i) =>
     nodes.push({

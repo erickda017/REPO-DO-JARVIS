@@ -9,12 +9,14 @@ const on = (channel: string, cb: (...a: any[]) => void) => {
 }
 
 contextBridge.exposeInMainWorld('jarvis', {
+  token: ipcRenderer.sendSync('app:token') as string,
   projects: {
     list: () => ipcRenderer.invoke('projects:list'),
     add: () => ipcRenderer.invoke('projects:add'),
     remove: (root: string) => ipcRenderer.invoke('projects:remove', root),
     rescan: (root: string) => ipcRenderer.invoke('projects:rescan', root),
   },
+  access: { pick: () => ipcRenderer.invoke('access:pick') },
   ia: {
     status: () => ipcRenderer.invoke('ia:status'),
     start: (mode: string) => ipcRenderer.invoke('ia:start', mode),

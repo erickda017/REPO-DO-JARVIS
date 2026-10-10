@@ -45,7 +45,7 @@ const PERSONA =
   'Você é o JARVIS, assistente pessoal do usuário. Responda em português do Brasil, de forma direta e curta ' +
   '(no máximo duas ou três frases, a menos que peçam mais). Não invente fatos nem ações que não executou.'
 
-export function createApi({ health, router, services, projects, tasks, timer, audit, voice, settings, allowNoOrigin }) {
+export function createApi({ openai, health, router, services, projects, tasks, timer, audit, voice, settings, access, monitor, profiles, agent, alerts, allowNoOrigin }) {
   const PREFIX = '/api/command/'
 
   const routes = {
@@ -99,6 +99,12 @@ export function createApi({ health, router, services, projects, tasks, timer, au
         maxTokens: Number.isInteger(b.maxTokens) ? Math.min(b.maxTokens, 2048) : 512,
       }),
     // Provider API keys and per-provider switches, managed from the app. Keys are never returned.
+    // The token of the OpenAI-compatible door; POST so that only an allowed browser origin (the app) can read it.
+    'POST router/info': async () => ({ endpoint: 'http://127.0.0.1:8787/v1', token: await openai.token(), spend: settings.flags.get('routerSpend') === true }),
+    'POST router/spend': async (b) => {
+      await settings.setFlag('routerSpend', b.on === true)
+      return { spend: settings.flags.get('routerSpend') === true }
+    },
     'GET keys': async () => settings.keys(),
     'POST keys': async (b) => settings.setKey(String(b.name ?? ''), b.value),
     'POST keys/clear': async (b) => settings.clearKey(String(b.name ?? '')),
@@ -106,6 +112,37 @@ export function createApi({ health, router, services, projects, tasks, timer, au
       await settings.setProvider(String(b.id ?? ''), { enabled: b.enabled, model: b.model, priority: b.priority })
       return health.snapshot()
     },
+    // Desktop agent
+    'POST agent/run': async (b) => ({ jobId: agent.run({ text: b.text, history: Array.isArray(b.history) ? b.history : [], sensitive: b.sensitive === true, confirmSpend: b.confirm === true }) }),
+    'GET agent/job': async (q) => agent.view(String(q.id ?? '')) ?? Promise.reject(new HttpError(404, 'unknown job')),
+    'POST agent/confirm': async (b) => ({ ok: agent.confirm(String(b.id ?? ''), b.approve === true) }),
+    'GET agent/access': async () => access.snapshot(),
+    'POST agent/access': async (b) => {
+      if (typeof b.tool === 'string') await access.setTool(b.tool, b.on === true)
+      if (typeof b.addRoot === 'string') await access.addRoot(b.addRoot, typeof b.label === 'string' ? b.label : undefined)
+      if (typeof b.removeRoot === 'string') await access.removeRoot(b.removeRoot)
+      audit.record('agent.access', { tool: b.tool, on: b.on, addRoot: Boolean(b.addRoot), removeRoot: Boolean(b.removeRoot) })
+      return access.snapshot()
+    },
+    // Run one tool directly (used by the app's own screens). Anything dangerous needs confirmed:true, i.e. the owner already clicked OK.
+    'POST agent/tool': async (b) => {
+      const t = agent.tools[String(b.tool ?? '')]
+      if (!t) throw new HttpError(404, 'unknown tool')
+      if (!access.allows(t.group)) throw new HttpError(403, 'o grupo "' + t.group + '" está desligado na tela Agente')
+      if (t.risk === 'danger' && b.confirmed !== true) throw new HttpError(409, 'esta ação precisa de confirmação')
+      try {
+        const r = await t.run(b.args && typeof b.args === 'object' ? b.args : {})
+        audit.record('agent.tool', { tool: t.name, ok: true, verified: r.verified })
+        return { ok: true, ...r }
+      } catch (e) {
+        audit.record('agent.tool', { tool: t.name, ok: false })
+        return { ok: false, error: String(e?.message ?? e).slice(0, 300) }
+      }
+    },
+    'GET agent/alerts': async () => alerts.slice(-10),
+    'GET agent/profile': async () => profiles.status(),
+    'GET monitor/summary': async () => ({ summary: monitor.summary(), report: monitor.report(30), history: monitor.history().slice(-60), disks: await monitor.disks().catch(() => []) }),
+    'POST monitor/report': async (b) => monitor.report(Math.min(Math.max(Number(b.minutes) || 30, 1), 60)),
     'GET voice': async () => voice.status(),
     'POST voice': async (b) => voice.set({ apiKey: b.apiKey, voiceId: b.voiceId }),
     'POST voice/test': async () => voice.test(),
@@ -148,7 +185,7 @@ export function createApi({ health, router, services, projects, tasks, timer, au
       }
       const handler = routes[`${req.method} ${url.pathname.slice(PREFIX.length).replace(/\/+$/, '')}`]
       if (!handler) throw new HttpError(404, 'unknown command endpoint')
-      const body = mutating ? await readJson(req) : {}
+      const body = mutating ? await readJson(req) : Object.fromEntries(url.searchParams)
       send(200, await handler(body))
     } catch (err) {
       if (err instanceof HttpError) return send(err.status, { error: err.message }), true

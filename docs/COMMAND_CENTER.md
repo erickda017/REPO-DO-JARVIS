@@ -93,6 +93,43 @@ one is already listening on 8787, and serves the UI from `127.0.0.1:5174`
 (main process), `app/renderer/src` (UI). Tests: `npm run test:app` (neural
 graph, activity spreading, health tone, command parsing). Preview: `docs/app-home.png`.
 
+### Desktop agent, disk analysis, local-AI control, router door (round 4)
+
+- **Agent** (`bridge/agent/`): every free-text request goes to one loop (`agent.mjs`): the model proposes ONE JSON action at a
+  time, code enforces permissions and confirmations, tools verify their own results (`verified: true/false/null`), and the
+  final status (Concluído / Parcial / Não concluído) is computed from that evidence, never from the model's words. A
+  second, independent model call audits the evidence when something was changed (advisory). Plain chat is answered in one
+  call without tools. **Honesty guard**: a request that needs a tool (an action, or a measurement of the PC) answered with
+  zero tool calls is pushed back twice and then refused; found in live testing, where the local 4B model claimed to have
+  created a file and invented RAM numbers.
+- **Tools**, by permission group (switch in the **Agente** screen; `apps`, `processes`, `commands` start OFF):
+  files (`fs_list/read/search/write/mkdir/move/delete`, `temp_clean`; only inside granted folders; delete goes to the Recycle
+  Bin and always asks), web (`web_search` via DuckDuckGo Lite, `web_fetch` through the bridge's SSRF-guarded fetcher,
+  `url_open`), apps (`app_list`, `app_open`, verified by a process/window check), system (CPU/RAM summary, top processes,
+  temperature, CPU/RAM report, `disk_report`, `disk_largest`, `disk_big_files`, `mem_snapshot`, `mc_locate`), processes
+  (`proc_list`, `proc_close`, game profile), commands (`run_command`, always confirmed, with a deny-list).
+- **Monitoring** is measured, not estimated: a 10 s sampler over Node's `os` keeps the last hour (CPU %, RAM); disks come from
+  WMI; disk activity from `Win32_PerfFormattedData_PerfDisk` (locale independent); per-process CPU is a real 1 s window.
+  Temperature is read from ACPI thermal zones or `nvidia-smi` and otherwise reported as **unavailable with the reason**
+  (on this PC the Windows thermal WMI is "not supported" and there is no NVIDIA GPU, so the answer is "unavailable").
+- **Disk space**: sizes by folder, big files, cleanup candidates (TEMP, npm cache, old big Downloads, Recycle Bin) with real
+  numbers; the agent suggests what to delete and why and deletes only after you confirm. A background check every 5 min warns
+  (a card) when a drive is under 10 % or 15 GB free, once per drive per 12 h.
+- **Safety rules in code**: protected processes (Windows core, security software, JARVIS, local-AI servers) can never be closed;
+  caution/unknown ones ask first; closing is the normal "close window" request, force needs a second confirmation; "Modo game"
+  never touches antivirus or services, shows the RAM before/after and remembers what it closed.
+- **IA local from the app**: the local AI project now lives in `ia-local/` (git-ignored: 15 GB of models, C.R.I.S, secrets). The old
+  path `G:\NOVA IA DO UMBRA` is a junction to it, so shortcuts, the Umbra bridge and `PARAR_IA.bat` keep working. The **IA local**
+  screen starts/stops the light model, C.R.I.S and the heavy model with the project's own launch commands and its own
+  `PARAR_IA.bat`. Backups of the two agent files I edited are in `ia-local/_backup/`.
+- **Own agent in Programar**: starts pre-answered (`--pasta=`, `--modo=`) with a compact header, a one-line spinner and
+  `● tool` / `⎿ ok` lines instead of repeated warnings. The Desktop shortcut still launches the old compiled `.exe`
+  (`dist/agente-codigo.exe`); rebuild it with the project's own pkg step to get the new look there too.
+- **Router door** (`/v1/chat/completions`, `/v1/models`, bearer token shown in the IAs screen): any OpenAI-style client, your own
+  agent included, gets the quota failover. Paid providers there only if "Permitir provedores pagos por aqui" is on.
+- Providers catalogue now includes Claude, Gemini, OpenAI, DeepSeek, OpenRouter, Groq and Mistral (switched off, no model, until a
+  key is saved). A loopback server is never "paid", so the local model needs no "autorizo gasto".
+
 ### More AIs, quota failover, Programar mode, project networks (round 3)
 
 - **Providers**: Google Gemini (native adapter, contract checked against Google's discovery document), OpenRouter and

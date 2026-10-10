@@ -88,7 +88,9 @@ export async function iaStart(root: string | null, mode: IaMode, logDir: string)
 /** Uses the project's own PARAR_IA.bat (it matches llama-server by command line and the C.R.I.S node process). */
 export async function iaStop(root: string | null): Promise<IaStatus> {
   if (!iaValid(root)) return { ...(await iaStatus(root)), error: 'Pasta da IA local não encontrada.' }
-  await new Promise<void>((resolve) => execFile('cmd.exe', ['/c', 'PARAR_IA.bat', 'silencioso'], { cwd: root, windowsHide: true, timeout: 20000 }, () => resolve()))
+  // Absolute path, quoted for cmd (the current directory is not searched for scripts, and the folder may contain spaces).
+  const bat = join(root, 'PARAR_IA.bat')
+  await new Promise<void>((resolve) => execFile('cmd.exe', ['/d', '/s', '/c', `"${bat}" silencioso`], { cwd: root, windowsHide: true, timeout: 20000, windowsVerbatimArguments: true }, () => resolve()))
   await new Promise((r) => setTimeout(r, 1500))
   return iaStatus(root)
 }

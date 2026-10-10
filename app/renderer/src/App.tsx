@@ -1,5 +1,5 @@
 import { useEffect } from 'react'
-import { Activity, Cpu, FolderGit2, Power, MessageSquare, Mic, Network, PanelLeftClose, PanelLeftOpen, Terminal } from 'lucide-react'
+import { Activity, Bot, Cpu, FolderGit2, Power, MessageSquare, Mic, Network, PanelLeftClose, PanelLeftOpen, Terminal } from 'lucide-react'
 import { useApp, type View } from './store.ts'
 import { NeuralScene } from './neural/Scene.tsx'
 import { FloatingLayer } from './ui/Floating.tsx'
@@ -9,6 +9,7 @@ import { Caption } from './ui/Caption.tsx'
 import { CodeView } from './ui/CodeView.tsx'
 import { ProjectsView } from './ui/ProjectsView.tsx'
 import { IaView } from './ui/IaView.tsx'
+import { AgentView } from './ui/AgentView.tsx'
 import { AisView, ChatView, SystemView, VoiceView } from './ui/Views.tsx'
 
 const NAV: { id: View; label: string; icon: typeof Network }[] = [
@@ -16,6 +17,7 @@ const NAV: { id: View; label: string; icon: typeof Network }[] = [
   { id: 'chat', label: 'Conversa', icon: MessageSquare },
   { id: 'code', label: 'Programar', icon: Terminal },
   { id: 'projects', label: 'Projetos', icon: FolderGit2 },
+  { id: 'agent', label: 'Agente', icon: Bot },
   { id: 'ia', label: 'IA local', icon: Power },
   { id: 'ais', label: 'IAs', icon: Cpu },
   { id: 'system', label: 'Sistema', icon: Activity },
@@ -90,6 +92,7 @@ export function App() {
         {view === 'chat' && <ChatView />}
         {view === 'code' && <CodeView />}
         {view === 'projects' && <ProjectsView />}
+        {view === 'agent' && <AgentView />}
         {view === 'ia' && <IaView />}
         {view === 'ais' && <AisView />}
         {view === 'system' && <SystemView />}

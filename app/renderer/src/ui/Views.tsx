@@ -73,6 +73,33 @@ function ProviderControls({ p, keys, reload }: { p: ProviderView; keys: KeyStatu
   )
 }
 
+/** The OpenAI-compatible door of the router: lets the owner's own agent (or any program) get quota failover. */
+function RouterDoor() {
+  const [info, setInfo] = useState<{ endpoint: string; token: string; spend: boolean } | null>(null)
+  const [copied, setCopied] = useState('')
+  const copy = (label: string, text: string) => void navigator.clipboard.writeText(text).then(() => { setCopied(label); setTimeout(() => setCopied(''), 1500) })
+  const env = info ? `LOCAL_AI_ENDPOINT=${info.endpoint}\nLOCAL_AI_API_KEY=${info.token}\nLOCAL_AI_MODEL=auto\nAI_PROVIDER_PRIORITY=local` : ''
+  return (
+    <section className="panel form" style={{ marginTop: 22 }}>
+      <h3>Roteador para outros programas (o seu agente inclusive)</h3>
+      <p className="dim small">Qualquer programa que fale o formato OpenAI pode usar este endereço: se a cota de uma IA acabar, o JARVIS passa para a próxima e o trabalho continua. Só aceita conexões deste PC e exige a chave abaixo.</p>
+      {!info ? (
+        <div className="actions"><button className="btn" onClick={() => void api.routerInfo().then(setInfo).catch(() => {})}>Mostrar endereço e chave</button></div>
+      ) : (
+        <>
+          <pre className="envbox">{env}</pre>
+          <div className="actions">
+            <button className="btn" onClick={() => copy('env', env)}>{copied === 'env' ? 'Copiado' : 'Copiar as 4 linhas'}</button>
+            <button className="btn" onClick={() => copy('key', info.token)}>{copied === 'key' ? 'Copiado' : 'Copiar só a chave'}</button>
+            <label className="switch"><input type="checkbox" checked={info.spend} onChange={(e) => void api.routerSpend(e.target.checked).then((r) => setInfo({ ...info, spend: r.spend }))} /> Permitir provedores pagos por aqui</label>
+          </div>
+          <p className="dim small">No seu agente: cole as linhas em <code>agente-codigo\.env</code> (ou nas variáveis dele) e use o modo externo (<code>/externo</code>). Sem a opção de pagos ligada, só a IA local responde. Chamadas de ferramentas (function calling) não são traduzidas: só texto.</p>
+        </>
+      )}
+    </section>
+  )
+}
+
 export function AisView() {
   const ov = useApp((s) => s.overview)
   const refresh = useApp((s) => s.refresh)
@@ -114,6 +141,7 @@ export function AisView() {
           </li>
         ))}
       </ul>
+      <RouterDoor />
     </div>
   )
 }

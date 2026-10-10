@@ -8,12 +8,14 @@ declare global {
   interface Window {
     /** Present only inside the Electron app (see electron/preload.ts); absent in a plain browser. */
     jarvis?: {
+      token: string
       projects: {
         list: () => Promise<ProjectGraph[]>
         add: () => Promise<ProjectGraph | null>
         remove: (root: string) => Promise<boolean>
         rescan: (root: string) => Promise<ProjectGraph | null>
       }
+      access: { pick: () => Promise<string | null> }
       ia: {
         status: () => Promise<IaStatus>
         start: (mode: IaMode) => Promise<IaStatus>

@@ -6,7 +6,8 @@ import { scanProject, type ProjectGraph } from './projects.ts'
 import { watchSession } from './transcripts.ts'
 import { iaStart, iaStatus, iaStop, iaValid, type IaMode } from './ia.ts'
 import { spawn, type ChildProcess } from 'node:child_process'
-import { appendFileSync, copyFileSync, createReadStream, existsSync, mkdirSync, statSync, writeFileSync } from 'node:fs'
+import { randomBytes } from 'node:crypto'
+import { appendFileSync, copyFileSync, createReadStream, existsSync, mkdirSync, realpathSync, statSync, writeFileSync } from 'node:fs'
 import http from 'node:http'
 import net from 'node:net'
 import { extname, join, normalize, sep } from 'node:path'
@@ -22,6 +23,8 @@ const MIME: Record<string, string> = {
   '.woff2': 'font/woff2', '.svg': 'image/svg+xml', '.png': 'image/png', '.ico': 'image/x-icon',
 }
 
+// Per-launch secret shared only with the bridge this app starts and with its own page (through the preload).
+const APP_TOKEN = randomBytes(24).toString('hex')
 let bridge: ChildProcess | null = null
 let ui: http.Server | null = null
 
@@ -52,7 +55,7 @@ async function startBridge() {
   if (await portBusy(BRIDGE_PORT)) return
   bridge = spawn(process.execPath, [join(ROOT, 'bridge', 'server.mjs')], {
     cwd: ROOT,
-    env: { ...process.env, ...userPaths(), ELECTRON_RUN_AS_NODE: '1' },
+    env: { ...process.env, ...userPaths(), ELECTRON_RUN_AS_NODE: '1', JARVIS_APP_TOKEN: APP_TOKEN },
     stdio: 'ignore',
     windowsHide: true,
   })
@@ -61,9 +64,10 @@ async function startBridge() {
 /** Serve the built renderer from loopback so its origin is one the bridge allows. */
 function startUi(): Promise<void> {
   const handler: http.RequestListener = (req, res) => {
-    const path = normalize(decodeURIComponent((req.url ?? '/').split('?')[0]))
+    let path: string
+    try { path = normalize(decodeURIComponent((req.url ?? '/').split('?')[0])) } catch { return void res.writeHead(400).end() }
     let file = join(DIST, path === sep || path === '/' ? 'index.html' : path)
-    if (!file.startsWith(DIST)) return void res.writeHead(403).end() // path traversal guard
+    if (file !== DIST && !file.startsWith(DIST + sep)) return void res.writeHead(403).end() // path traversal guard (sibling folders with the same prefix included)
     if (!existsSync(file) || statSync(file).isDirectory()) file = join(DIST, 'index.html')
     res.writeHead(200, { 'content-type': MIME[extname(file)] ?? 'application/octet-stream' })
     createReadStream(file).pipe(res)
@@ -90,13 +94,29 @@ const readJson = <T>(file: string, fallback: T): T => {
 }
 const writeJson = (file: string, v: unknown) => { mkdirSync(app.getPath('userData'), { recursive: true }); writeFileSync(file, JSON.stringify(v, null, 2)) }
 
-const projectRoots = () => readJson<string[]>(userFile('projects.json'), [])
+/** Granted folders, always as real paths (a junction or a renamed link resolves to its target), de-duplicated. */
+const projectRoots = () => {
+  const saved = readJson<string[]>(userFile('projects.json'), [])
+  const real = [...new Set(saved.map((r) => { try { return realpathSync(r) } catch { return r } }))]
+  if (real.length !== saved.length || real.some((r, i) => r !== saved[i])) writeJson(userFile('projects.json'), real)
+  return real
+}
 const scans = new Map<string, ProjectGraph>()
 const scanSafe = (root: string) => { try { const g = scanProject(root); scans.set(root, g); return g } catch { return null } }
 
 let term: pty.IPty | null = null
 let stopWatch: (() => void) | null = null
-const stopTerm = () => { stopWatch?.(); stopWatch = null; try { term?.kill() } catch { /* already gone */ } term = null }
+const stopTerm = () => {
+  stopWatch?.()
+  stopWatch = null
+  if (term) {
+    // Kill the whole process tree (the agent or Claude Code is a child of the shell host); a plain pty kill can
+    // leave the window of the app waiting for it on exit.
+    try { execFileSync('taskkill', ['/pid', String(term.pid), '/t', '/f'], { stdio: 'ignore', timeout: 4000 }) } catch { /* already gone */ }
+    try { term.kill() } catch { /* already gone */ }
+  }
+  term = null
+}
 
 /** Where the owner's own agent lives: saved choice, else the known default location if it exists. */
 const agentPath = (): string | null => {
@@ -131,6 +151,11 @@ function registerIpc(getWin: () => BrowserWindow | null) {
   ipcMain.handle('projects:remove', (_e, root: string) => { writeJson(userFile('projects.json'), projectRoots().filter((r) => r !== root)); scans.delete(root); return true })
   ipcMain.handle('projects:rescan', (_e, root: string) => (projectRoots().includes(root) ? scanSafe(root) : null))
 
+  ipcMain.on('app:token', (e) => { e.returnValue = APP_TOKEN })
+  ipcMain.handle('access:pick', async () => {
+    const r = await dialog.showOpenDialog(getWin()!, { properties: ['openDirectory'], title: 'Escolha uma pasta que o agente poderá ler e alterar' })
+    return r.canceled ? null : (r.filePaths[0] ?? null)
+  })
   ipcMain.handle('ia:status', () => iaStatus(iaRoot()))
   ipcMain.handle('ia:start', (_e, mode: IaMode) => (IA_MODES.has(mode) ? iaStart(iaRoot(), mode, join(app.getPath('userData'), 'ia-logs')) : iaStatus(iaRoot())))
   ipcMain.handle('ia:stop', () => iaStop(iaRoot()))
@@ -146,7 +171,8 @@ function registerIpc(getWin: () => BrowserWindow | null) {
     writeJson(userFile('code.json'), { ...readJson(userFile('code.json'), {}), agent: r.filePaths[0] })
     return r.filePaths[0]
   })
-  ipcMain.handle('code:start', (_e, o: { engine: 'claude' | 'agent' | 'shell'; cwd: string; cols: number; rows: number }) => {
+  ipcMain.handle('code:start', async (_e, o: { engine: 'claude' | 'agent' | 'shell'; cwd: string; cols: number; rows: number }) => {
+    try { o.cwd = realpathSync(o.cwd) } catch { /* the check below rejects it */ }
     if (!projectRoots().includes(o.cwd)) return { ok: false, error: 'Escolha uma pasta de projeto autorizada.' }
     stopTerm()
     let file = 'powershell.exe'
@@ -158,7 +184,14 @@ function registerIpc(getWin: () => BrowserWindow | null) {
       const p = agentPath()
       if (!p) return { ok: false, error: 'Defina onde está o seu agente.' }
       // Arguments go in separately: node-pty quotes paths with spaces itself, and quotes we add would be doubled.
-      if (/\.js$/i.test(p)) { file = nodeBin(); args = [p] } else { file = 'cmd.exe'; args = ['/c', p] }
+      if (/\.js$/i.test(p)) {
+        // Pre-answer the agent's two start-up questions (folder and model) so the session opens clean: the heavy
+        // model when its server is up, otherwise the light one. (--key=value is the only form its parser reads.)
+        const modo = (await portBusy(8081)) ? 'programacao' : (await portBusy(8082)) ? 'leve' : null
+        if (!modo) return { ok: false, error: 'Nenhuma IA local está ligada. Ligue uma na tela "IA local" (o modo leve basta).' }
+        file = nodeBin()
+        args = [p, `--pasta=${o.cwd}`, `--modo=${modo}`]
+      } else { file = 'cmd.exe'; args = ['/c', p] }
     }
     term = pty.spawn(file, args, { name: 'xterm-256color', cols: o.cols || 100, rows: o.rows || 30, cwd: o.cwd, env: process.env as Record<string, string> })
     term.onData((d) => send('code:data', d))
@@ -224,6 +257,7 @@ else {
   })
   app.on('window-all-closed', () => app.quit())
   app.on('will-quit', () => {
+    setTimeout(() => app.exit(0), 3000).unref() // never let a child that will not die keep the app open
     stopTerm()
     bridge?.kill()
     ui?.close()

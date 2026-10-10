@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { AnimatePresence, motion } from 'framer-motion'
 import { X } from 'lucide-react'
+import { Check, Loader2, ShieldAlert } from 'lucide-react'
 import { useApp, type Card } from '../store.ts'
 
 function hostOf(url: string) {
@@ -120,6 +121,41 @@ function FloatCard({ card, bounds }: { card: Card; bounds: React.RefObject<HTMLD
   )
 }
 
+/** Live view of what the agent is doing: each step with its verified result, and the approval prompt for risky ones. */
+function JobCard() {
+  const job = useApp((s) => s.job)
+  const confirmJob = useApp((s) => s.confirmJob)
+  const dismiss = useApp((s) => s.dismissJob)
+  if (!job) return null
+  const res = job.result
+  const label = res ? { concluido: 'Concluído', parcial: 'Parcial', nao_concluido: 'Não concluído', pergunta: 'Pergunta' }[res.status] : job.status === 'awaiting' ? 'Aguardando você' : 'Trabalhando…'
+  return (
+    <motion.section layout className="float-card job" data-state={res?.status ?? job.status} style={{ width: 340 }} initial={{ opacity: 0, scale: 0.94 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0 }} transition={{ duration: 0.35, ease: [0.16, 1, 0.3, 1] }} aria-live="polite">
+      <header>
+        <h3>Agente · {label}</h3>
+        <button className="icon-btn" onClick={dismiss} aria-label="Fechar o painel do agente"><X size={14} /></button>
+      </header>
+      <ol className="steps">
+        {job.steps.map((s) => (
+          <li key={s.id} data-ok={s.ok === undefined ? 'run' : s.ok ? (s.verified === false ? 'warn' : 'ok') : 'bad'}>
+            <span className="step-ico" aria-hidden>{s.ok === undefined ? <Loader2 size={13} className="spin" /> : s.ok ? <Check size={13} /> : <X size={13} />}</span>
+            <span className="grow"><b>{s.tool}</b>{s.why ? <span className="dim small"> — {s.why}</span> : null}
+              {(s.evidence || s.error) && <span className="dim small block">{s.error ?? s.evidence}{s.denied ? ' (não autorizado)' : ''}</span>}</span>
+          </li>
+        ))}
+      </ol>
+      {job.pending && (
+        <div className="confirm" role="alertdialog" aria-label="Confirmação necessária">
+          <p><ShieldAlert size={15} style={{ verticalAlign: '-3px' }} /> {job.pending.message}</p>
+          <div className="actions"><button className="btn primary" onClick={() => void confirmJob(true)}>Autorizar</button><button className="btn" onClick={() => void confirmJob(false)}>Negar</button></div>
+        </div>
+      )}
+      {res?.audit && <p className="dim small">Auditoria independente: {res.audit.verdict} — {res.audit.reason}</p>}
+      {res && res.notes.length > 0 && <ul className="notes">{res.notes.map((n, i) => <li key={i} className="small">{n}</li>)}</ul>}
+    </motion.section>
+  )
+}
+
 /** The dynamic layer: whatever JARVIS surfaces floats here, draggable, over the neural scene. */
 export function FloatingLayer() {
   const cards = useApp((s) => s.cards)
@@ -127,6 +163,7 @@ export function FloatingLayer() {
   return (
     <div className="float-layer" ref={bounds}>
       <AnimatePresence>
+        <JobCard key="job" />
         {cards.map((c) => (
           <FloatCard key={c.id} card={c} bounds={bounds} />
         ))}
