@@ -34,3 +34,5 @@ dist-app
 dist-electron
 
 .impeccable/review/
+
+release/

@@ -93,6 +93,24 @@ one is already listening on 8787, and serves the UI from `127.0.0.1:5174`
 (main process), `app/renderer/src` (UI). Tests: `npm run test:app` (neural
 graph, activity spreading, health tone, command parsing). Preview: `docs/app-home.png`.
 
+### Installer (Windows)
+
+`npm run app:dist` builds, into `release/out/` (git-ignored):
+- `JARVIS-Setup-0.1.0.exe` (~192 MB), per-user NSIS installer (no admin rights, choose folder, desktop shortcut, uninstaller).
+- `JARVIS-Portable-0.1.0.exe` (~192 MB), single file, no install; it unpacks to a temp folder on every launch so the first screen takes a while.
+
+Packaging uses a small staging project (`release/stage`) so only the bridge's three runtime packages ship. Installed
+builds keep their config and data in `%APPDATA%\J.A.R.V.I.S\` (`command.config.json`, copied on first run from the
+config that existed when the installer was built, and `data/` with tasks, timer, audit log and the ElevenLabs key).
+Edit that copy to change providers, ports or services.
+
+Verified on this PC: the unpacked app, the portable exe, and a silent install / launch / uninstall cycle of the
+installer (files, Start-menu and desktop shortcuts, registry entry and removal all correct).
+Known issues: **the installer process exits with code `-1073740940` (0xC0000374) in silent mode** after finishing the
+install, reproduced three times, cause not found (the GUI wizard path was not exercised); the binaries are **not
+code-signed**, so Windows SmartScreen will warn; it still bundles the Claude Agent SDK (~264 MB unpacked) because the
+bridge imports it, so the original Claude-driven HUD brain stays available; the icon is a generated placeholder.
+
 - **Home** is a 3D neural scene. Big nodes = real entities (router core, AIs,
   services, projects, tasks, timer, voice) coloured by measured state; a pulse
   travels from the core to the AI/service that actually did the work (read from

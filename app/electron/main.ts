@@ -1,6 +1,6 @@
 import { app, BrowserWindow, Menu, shell } from 'electron'
 import { spawn, type ChildProcess } from 'node:child_process'
-import { appendFileSync, createReadStream, existsSync, statSync, writeFileSync } from 'node:fs'
+import { appendFileSync, copyFileSync, createReadStream, existsSync, mkdirSync, statSync, writeFileSync } from 'node:fs'
 import http from 'node:http'
 import net from 'node:net'
 import { extname, join, normalize, sep } from 'node:path'
@@ -26,12 +26,27 @@ const portBusy = (port: number) =>
     s.once('error', () => resolve(false))
   })
 
+/**
+ * Installed builds keep their config and data (tasks, audit log, voice key) per user in
+ * %APPDATA%, never next to the executable. On first run the bundled default config is copied
+ * there, and from then on that copy is the owner's to edit. Dev runs keep using the repo files.
+ */
+function userPaths(): Record<string, string> {
+  if (!app.isPackaged) return {}
+  const dir = app.getPath('userData')
+  const config = join(dir, 'command.config.json')
+  mkdirSync(dir, { recursive: true })
+  const bundled = join(ROOT, 'default-command.config.json')
+  if (!existsSync(config) && existsSync(bundled)) copyFileSync(bundled, config)
+  return { JARVIS_COMMAND_CONFIG: config, JARVIS_DATA_DIR: join(dir, 'data') }
+}
+
 /** Start the bridge as a child unless one is already listening (e.g. started by hand). */
 async function startBridge() {
   if (await portBusy(BRIDGE_PORT)) return
   bridge = spawn(process.execPath, [join(ROOT, 'bridge', 'server.mjs')], {
     cwd: ROOT,
-    env: { ...process.env, ELECTRON_RUN_AS_NODE: '1' },
+    env: { ...process.env, ...userPaths(), ELECTRON_RUN_AS_NODE: '1' },
     stdio: 'ignore',
     windowsHide: true,
   })
