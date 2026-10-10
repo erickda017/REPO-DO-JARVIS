@@ -303,3 +303,12 @@ input, select { border-radius: var(--r-sm); }
 .timeline li[data-kind='subagent'] b { color: var(--warn); }
 .timeline span { color: var(--dim); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 @media (max-width: 1150px) { .code { grid-template-columns: 1fr; } .code-side { max-height: 240px; } .stats { display: none; } }
+
+/* Terminal sizing fix: every ancestor must be allowed to shrink (min-height 0) and the grid needs an explicit
+   single row, otherwise the terminal grows to its content, runs past the window and the last lines are cut off. */
+.main { min-height: 0; }
+.code { min-height: 0; grid-template-rows: minmax(0, 1fr); overflow: hidden; }
+.code-main { min-height: 0; overflow: hidden; }
+.term { position: relative; min-height: 0; }
+.term .xterm, .term .xterm-screen { height: 100%; }
+.code-side { min-height: 0; }

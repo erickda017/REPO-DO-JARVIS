@@ -11,7 +11,7 @@ import net from 'node:net'
 import { extname, join, normalize, sep } from 'node:path'
 
 const ROOT = app.getAppPath()
-const UI_PORT = 5174 // inside the range the bridge accepts as an origin
+let uiPort = Number(process.env.APP_UI_PORT ?? 5174) // must stay inside 5173-5199, the range the bridge accepts as an origin
 const BRIDGE_PORT = Number(process.env.JARVIS_BRIDGE_PORT ?? 8787)
 const DIST = join(ROOT, 'dist-app')
 const DEV_URL = process.env.APP_DEV_URL // set by `npm run app:dev` (Vite dev server)
@@ -59,17 +59,22 @@ async function startBridge() {
 
 /** Serve the built renderer from loopback so its origin is one the bridge allows. */
 function startUi(): Promise<void> {
+  const handler: http.RequestListener = (req, res) => {
+    const path = normalize(decodeURIComponent((req.url ?? '/').split('?')[0]))
+    let file = join(DIST, path === sep || path === '/' ? 'index.html' : path)
+    if (!file.startsWith(DIST)) return void res.writeHead(403).end() // path traversal guard
+    if (!existsSync(file) || statSync(file).isDirectory()) file = join(DIST, 'index.html')
+    res.writeHead(200, { 'content-type': MIME[extname(file)] ?? 'application/octet-stream' })
+    createReadStream(file).pipe(res)
+  }
+  // If the port is taken (another copy of the app, a dev server), move to the next free one in the allowed range.
   return new Promise((resolve, reject) => {
-    ui = http.createServer((req, res) => {
-      const path = normalize(decodeURIComponent((req.url ?? '/').split('?')[0]))
-      let file = join(DIST, path === sep || path === '/' ? 'index.html' : path)
-      if (!file.startsWith(DIST)) return void res.writeHead(403).end() // path traversal guard
-      if (!existsSync(file) || statSync(file).isDirectory()) file = join(DIST, 'index.html')
-      res.writeHead(200, { 'content-type': MIME[extname(file)] ?? 'application/octet-stream' })
-      createReadStream(file).pipe(res)
-    })
-    ui.once('error', reject)
-    ui.listen(UI_PORT, '127.0.0.1', () => resolve())
+    const tryPort = (port: number) => {
+      const srv = http.createServer(handler)
+      srv.once('error', (e: NodeJS.ErrnoException) => (e.code === 'EADDRINUSE' && port < 5199 ? tryPort(port + 1) : reject(e)))
+      srv.listen(port, '127.0.0.1', () => { ui = srv; uiPort = port; resolve() })
+    }
+    tryPort(uiPort)
   })
 }
 
@@ -176,9 +181,9 @@ async function createWindow() {
     return { action: 'deny' }
   })
   win.webContents.on('will-navigate', (e, url) => {
-    if (!url.startsWith(`http://127.0.0.1:${UI_PORT}`)) e.preventDefault()
+    if (!url.startsWith(`http://127.0.0.1:${uiPort}`)) e.preventDefault()
   })
-  await win.loadURL(DEV_URL ?? `http://127.0.0.1:${UI_PORT}`)
+  await win.loadURL(DEV_URL ?? `http://127.0.0.1:${uiPort}`)
 
   // Verification hooks: APP_EXEC runs a script in the page (e.g. to click through the UI), then
   // APP_SHOT=<file.png> saves a screenshot after the scene settles and quits.
