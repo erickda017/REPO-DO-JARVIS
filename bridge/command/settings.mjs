@@ -99,10 +99,15 @@ export function createSettings({ file, getRegistry, baseEnv = process.env, audit
       return this.keys()
     },
 
-    async setProvider(id, { enabled, model, priority }) {
+    async setProvider(id, { enabled, model, priority, free, allowedModels }) {
       if (!registry.get(id)) throw new Error('unknown provider')
       const o = { ...(data.overrides[id] ?? {}) }
       if (enabled !== undefined) o.enabled = Boolean(enabled)
+      if (free !== undefined) o.free = Boolean(free)
+      if (allowedModels !== undefined) {
+        if (!Array.isArray(allowedModels) || allowedModels.length > 20 || !allowedModels.every((m) => typeof m === 'string' && MODEL_RE.test(m))) throw new Error('allowedModels must be up to 20 valid model ids')
+        o.allowedModels = [...new Set(allowedModels)]
+      }
       if (model !== undefined) {
         if (typeof model !== 'string' || !MODEL_RE.test(model)) throw new Error('invalid model id')
         o.model = model

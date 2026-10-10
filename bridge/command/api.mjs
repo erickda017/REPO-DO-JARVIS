@@ -111,7 +111,7 @@ export function createApi({ openai, health, router, services, projects, tasks, t
     'POST keys': async (b) => settings.setKey(String(b.name ?? ''), b.value),
     'POST keys/clear': async (b) => settings.clearKey(String(b.name ?? '')),
     'POST providers/update': async (b) => {
-      await settings.setProvider(String(b.id ?? ''), { enabled: b.enabled, model: b.model, priority: b.priority })
+      await settings.setProvider(String(b.id ?? ''), { enabled: b.enabled, model: b.model, priority: b.priority, free: b.free, allowedModels: b.allowedModels })
       return health.snapshot()
     },
     // Desktop agent

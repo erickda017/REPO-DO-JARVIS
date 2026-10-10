@@ -1,3 +1,5 @@
+import { trackAudio } from './voice/level.ts'
+
 export const BASE: string = import.meta.env.VITE_BRIDGE_URL ?? 'http://127.0.0.1:8787'
 
 export type CheckState = 'ok' | 'fail' | 'unknown' | 'skipped'
@@ -14,6 +16,7 @@ export interface ProviderView {
   warning: string | null
   priority: number
   model: string | null
+  allowedModels: string[]
   capabilities: string[]
   status: null | { endpoint: Check; auth: Check; model: Check; inference: Check; checkedAt: string; models?: string[] | null }
   recentErrors: { kind: string; message: string; at: string }[]
@@ -145,7 +148,7 @@ export const api = {
   keys: () => call<KeyStatus[]>('GET', 'keys'),
   setKey: (name: string, value: string) => call<KeyStatus[]>('POST', 'keys', { name, value }),
   clearKey: (name: string) => call<KeyStatus[]>('POST', 'keys/clear', { name }),
-  providerUpdate: (id: string, patch: { enabled?: boolean; model?: string; priority?: number }) => call<ProviderView[]>('POST', 'providers/update', { id, ...patch }),
+  providerUpdate: (id: string, patch: { enabled?: boolean; model?: string; priority?: number; free?: boolean; allowedModels?: string[] }) => call<ProviderView[]>('POST', 'providers/update', { id, ...patch }),
   voice: () => call<VoiceStatus>('GET', 'voice'),
   voiceSet: (apiKey?: string, voiceId?: string) => call<VoiceStatus>('POST', 'voice', { apiKey, voiceId }),
   voiceTest: () => call<VoiceTest>('POST', 'voice/test'),
@@ -158,11 +161,12 @@ export async function speakViaBridge(text: string): Promise<boolean> {
     const r = await fetch(`${BASE}/tts`, { method: 'POST', headers: { 'content-type': 'application/json', ...(window.jarvis?.token ? { 'x-jarvis-token': window.jarvis.token } : {}) }, body: JSON.stringify({ text }) })
     if (!r.ok) return false
     const audio = new Audio(URL.createObjectURL(await r.blob()))
+    const stop = await trackAudio(audio) // the neural network and the whole interface follow this voice
     // Resolves when the voice has FINISHED, so the caption can disappear exactly then.
     return await new Promise<boolean>((resolve) => {
-      audio.onended = () => resolve(true)
-      audio.onerror = () => resolve(false)
-      audio.play().catch(() => resolve(false))
+      audio.onended = () => (stop(), resolve(true))
+      audio.onerror = () => (stop(), resolve(false))
+      audio.play().catch(() => (stop(), resolve(false)))
     })
   } catch {
     return false

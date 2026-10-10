@@ -1,4 +1,5 @@
 import { useEffect, useRef } from 'react'
+import { voice } from '../voice/level.ts'
 
 /**
  * Ambient motes drifting across the whole interface, with faint links between close ones. Pure canvas 2D,
@@ -30,17 +31,20 @@ export function Particles() {
       const dt = Math.min((now - last) / 1000, 0.05)
       last = now
       ctx.clearRect(0, 0, w, h)
+      const lv = voice.level // while JARVIS speaks the motes speed up and glow with his voice, on every page
+      const run = dt * (1 + lv * 4)
       for (let i = 0; i < N; i++) {
-        px[i] += vx[i] * dt; py[i] += vy[i] * dt
+        px[i] += vx[i] * run; py[i] += vy[i] * run
         if (px[i] < -10) px[i] = w + 10; else if (px[i] > w + 10) px[i] = -10
         if (py[i] < -10) py[i] = h + 10; else if (py[i] > h + 10) py[i] = -10
         const tw = 0.35 + 0.35 * Math.sin(now / 1400 + ph[i])
-        ctx.fillStyle = `rgba(120,225,255,${tw * 0.55})`
-        ctx.fillRect(px[i] - 1, py[i] - 1, 2, 2)
+        ctx.fillStyle = `rgba(120,225,255,${Math.min(1, tw * 0.55 * (1 + lv * 1.8))})`
+        const sz = 2 + lv * 2
+        ctx.fillRect(px[i] - sz / 2, py[i] - sz / 2, sz, sz)
         for (let j = i + 1; j < N; j++) {
           const dx = px[i] - px[j], dy = py[i] - py[j], d2 = dx * dx + dy * dy
           if (d2 < 130 * 130) {
-            ctx.strokeStyle = `rgba(79,216,255,${(1 - Math.sqrt(d2) / 130) * 0.16})`
+            ctx.strokeStyle = `rgba(79,216,255,${(1 - Math.sqrt(d2) / 130) * (0.16 + lv * 0.4)})`
             ctx.beginPath(); ctx.moveTo(px[i], py[i]); ctx.lineTo(px[j], py[j]); ctx.stroke()
           }
         }

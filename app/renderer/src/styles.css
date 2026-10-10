@@ -267,7 +267,9 @@ input, select { border-radius: var(--r-sm); }
 .prov .row-panel { padding: 0; }
 .controls { margin-top: 12px; padding-top: 12px; border-top: 1px solid rgba(92, 214, 255, 0.12); display: flex; flex-direction: column; gap: 8px; }
 .ctl { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
-.ctl input, .ctl select { flex: 1; min-width: 200px; }
+.ctl input, .ctl select, .ctl textarea { flex: 1; min-width: 200px; }
+.ctl textarea { background: rgba(5, 16, 26, 0.85); border: 1px solid var(--line); border-radius: var(--r-sm); padding: 8px 10px; resize: vertical; }
+.ctl textarea:focus { border-color: var(--cyan); outline: 0; }
 .switch { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; color: var(--dim); cursor: pointer; }
 .switch input { flex: none; min-width: 0; accent-color: var(--cyan); }
 
@@ -524,3 +526,32 @@ input, select { border-radius: var(--r-sm); }
 .gu-node-error { display: flex; gap: 8px; align-items: center; padding: 8px 12px; border: 1px dashed var(--bad); border-radius: 8px; color: var(--bad); font-size: 13px; }
 .gu-modal { position: fixed; inset: 0; background: rgba(1, 5, 9, 0.72); display: grid; place-items: center; z-index: 50; }
 .gu-modal-box { width: min(520px, 92vw); background: var(--panel-solid); border: 1px solid var(--line-strong); border-radius: 12px; padding: 18px 20px; display: flex; flex-direction: column; gap: 10px; }
+
+/* Round 5: command box as a slim search bar (one row, a little wider) + the whole interface follows JARVIS's voice (--voice, 0..1, set on <html> while he speaks) */
+.home-command { bottom: 26px; width: min(880px, calc(100% - 64px)); }
+.page.chat .command { max-width: 960px; }
+.command-row { display: flex; align-items: center; gap: 6px; min-height: 52px; padding: 5px 7px 5px 10px; border-radius: 26px; }
+.page.chat .command-row { min-height: 52px; border-radius: 26px; }
+.command-row textarea { flex: 1; grid-area: auto; min-height: 0; height: 40px; max-height: 140px; padding: 10px 6px; line-height: 20px; font-size: 16px; align-self: center; overflow-y: auto; }
+.command-row .opts { grid-area: auto; flex-direction: row; align-self: center; border-right: 1px solid rgba(92, 214, 255, 0.16); padding-right: 6px; gap: 0; }
+.command-row .send { grid-area: auto; width: 40px; height: 40px; align-self: center; flex: none; }
+.caption-wrap { bottom: 110px; }
+.command-row { border-color: rgba(92, 214, 255, calc(0.34 + var(--voice, 0) * 0.6)); box-shadow: 0 20px 56px rgba(0, 0, 0, 0.6), 0 0 calc(var(--voice, 0) * 46px) rgba(79, 216, 255, calc(var(--voice, 0) * 0.55)); }
+
+.core-dot { transform: scale(calc(1 + var(--voice, 0) * 0.7)); box-shadow: 0 0 calc(10px + var(--voice, 0) * 26px) calc(1px + var(--voice, 0) * 5px) rgba(79, 216, 255, calc(0.7 + var(--voice, 0) * 0.3)); }
+.sidebar { box-shadow: inset -1px 0 0 rgba(79, 216, 255, calc(var(--voice, 0) * 0.75)), 10px 0 calc(var(--voice, 0) * 44px) -14px rgba(79, 216, 255, calc(var(--voice, 0) * 0.6)); }
+.topbar { box-shadow: 0 1px 0 rgba(79, 216, 255, calc(var(--voice, 0) * 0.7)), 0 10px calc(var(--voice, 0) * 44px) -16px rgba(79, 216, 255, calc(var(--voice, 0) * 0.6)); }
+.nav-item[aria-current='page'] { box-shadow: 0 0 calc(var(--voice, 0) * 22px) rgba(79, 216, 255, calc(var(--voice, 0) * 0.5)); }
+/* A soft light rising from the bottom edge of the window, on every page and tab (the terminal included). */
+.app::after { content: ''; position: fixed; inset: 0; z-index: 3; pointer-events: none; background: radial-gradient(ellipse 70% 38% at 50% 108%, rgba(79, 216, 255, 0.5), transparent 70%); opacity: calc(var(--voice, 0) * 0.9); mix-blend-mode: screen; }
+/* mic test: device picker + live level bar */
+.mictest { display: flex; flex-direction: column; gap: 10px; margin: 6px 0 12px; }
+.meter { position: relative; height: 18px; border-radius: 9px; background: rgba(5, 16, 26, 0.9); border: 1px solid rgba(92, 214, 255, 0.22); overflow: hidden; }
+.meter i { position: absolute; inset: 0 auto 0 0; display: block; background: linear-gradient(90deg, rgba(79, 216, 255, 0.35), var(--cyan)); box-shadow: 0 0 14px rgba(79, 216, 255, 0.6); transition: width 60ms linear; }
+.meter i[data-hot='true'] { background: linear-gradient(90deg, var(--cyan), var(--warn)); }
+.meter b { position: absolute; top: 0; bottom: 0; width: 2px; background: var(--text); opacity: 0; transition: left 80ms linear; }
+.meter[data-on='true'] b { opacity: 0.8; }
+.mictest [data-tone='ok'] { color: var(--ok, #5be3a1); }
+.mictest [data-tone='warn'] { color: var(--warn); }
+.mictest [data-tone='dim'] { color: var(--dim); }
+.legend { top: 54px; bottom: auto; right: 20px; }

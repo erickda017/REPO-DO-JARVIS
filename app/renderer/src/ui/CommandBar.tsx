@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useLayoutEffect, useRef, useState } from 'react'
 import { ArrowUp, Lock, Mic, MicOff, Volume2, Wallet } from 'lucide-react'
 import { useApp } from '../store.ts'
 
@@ -7,6 +7,14 @@ const HINTS = ['como estão as IAs?', 'minhas tarefas', 'timer de 5 min']
 /** One rounded pill: the three options sit inside as quiet icon toggles; suggestions appear only while it is empty and focused. */
 export function CommandBar({ large = false }: { large?: boolean }) {
   const [text, setText] = useState('')
+  const box = useRef<HTMLTextAreaElement>(null)
+  // One line like a search bar; it only grows while the text needs more room.
+  useLayoutEffect(() => {
+    const el = box.current
+    if (!el) return
+    el.style.height = 'auto'
+    el.style.height = `${Math.min(el.scrollHeight, 140)}px`
+  }, [text])
   const { send, busy, sensitive, spend, speak, toggle, listen, listenLevel, startListen, stopListen } = useApp()
   const submit = () => {
     if (busy || !text.trim()) return // keep what was typed while an agent task is running
@@ -30,7 +38,8 @@ export function CommandBar({ large = false }: { large?: boolean }) {
           </button>
         </div>
         <textarea
-          rows={large ? 2 : 3}
+          ref={box}
+          rows={1}
           value={text}
           placeholder="Fale com o JARVIS…"
           aria-label="Mensagem para o JARVIS"

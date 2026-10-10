@@ -4,6 +4,7 @@ import { Html, OrbitControls } from '@react-three/drei'
 import { Bloom, EffectComposer } from '@react-three/postprocessing'
 import * as THREE from 'three'
 import { useApp } from '../store.ts'
+import { voice } from '../voice/level.ts'
 import { Activity, buildCloud, layoutEntities, mulberry32, nearestNeurons, TONE_COLOR, type EntityNode } from './graph.ts'
 import { EXT_COLOR, findNode, layoutProject, projectCenter } from './projectGraph.ts'
 import type { ProjectGraph } from '../../../electron/projects.ts'
@@ -56,7 +57,7 @@ function ProjectCloud({ g, index, total }: { g: ProjectGraph; index: number; tot
     for (let i = 0; i < n; i++) f[i] = Math.max(0, f[i] - dt * 0.7)
     const m = inst.current
     if (m) {
-      for (let i = 0; i < n; i++) m.setColorAt(i, col.copy(base[i]).lerp(HOT, Math.min(f[i], 1)).multiplyScalar(1 + f[i] * 2.5))
+      for (let i = 0; i < n; i++) m.setColorAt(i, col.copy(base[i]).lerp(HOT, Math.min(f[i], 1)).multiplyScalar(1 + f[i] * 2.5 + voice.level * 0.7))
       if (m.instanceColor) m.instanceColor.needsUpdate = true
     }
     const cc = lineGeo.getAttribute('color') as THREE.BufferAttribute
@@ -64,7 +65,7 @@ function ProjectCloud({ g, index, total }: { g: ProjectGraph; index: number; tot
       const v = Math.max(f[a], f[b])
       if (kind === 'tree') col.setRGB(0.025, 0.09, 0.13)
       else col.setRGB(0.07, 0.26, 0.32)
-      col.multiplyScalar(1 + v * 3)
+      col.multiplyScalar(1 + v * 3 + voice.level * 1.2)
       cc.setXYZ(k * 2, col.r, col.g, col.b)
       cc.setXYZ(k * 2 + 1, col.r, col.g, col.b)
     })
@@ -116,6 +117,7 @@ function World() {
   const travelers = useRef<{ to: EntityNode; t0: number }[]>([])
   const sprites = useRef<(THREE.Mesh | null)[]>([])
   const nextIdle = useRef(0)
+  const speechAcc = useRef(0)
   const still = useMemo(reduced, [])
 
   // Cloud instances
@@ -207,13 +209,20 @@ function World() {
       activity.fire(Math.floor(rand() * cloud.points.length), 0.55, now)
       nextIdle.current = now + 0.5 + rand() * 0.9
     }
+    // While JARVIS speaks, the network is driven by his voice: more neurons fire, the core beats and everything brightens with the loudness.
+    const lv = voice.level
+    if (lv > 0.02) {
+      speechAcc.current += dt * (8 + lv * 70)
+      for (; speechAcc.current >= 1; speechAcc.current--) activity.fire(Math.floor(rand() * cloud.points.length), 0.5 + lv * 0.8, now)
+      flash.current.set('core', Math.max(flash.current.get('core') ?? 0, lv))
+    }
     activity.step(dt, now, rand)
 
     const m = inst.current
     if (m) {
       for (let i = 0; i < cloud.points.length; i++) {
         const a = activity.a[i]
-        color.copy(BASE).lerp(HOT, Math.min(a, 1)).multiplyScalar(1 + a * 1.4)
+        color.copy(BASE).lerp(HOT, Math.min(a + lv * 0.12, 1)).multiplyScalar(1 + a * 1.4 + lv * 0.9)
         m.setColorAt(i, color)
       }
       if (m.instanceColor) m.instanceColor.needsUpdate = true
@@ -221,7 +230,7 @@ function World() {
     const col = lineGeo.getAttribute('color') as THREE.BufferAttribute
     cloud.edges.forEach(([i, j], k) => {
       const v = Math.max(activity.a[i], activity.a[j])
-      color.copy(BASE).multiplyScalar(0.2).lerp(HOT, Math.min(v, 1)).multiplyScalar(1 + v * 1.4)
+      color.copy(BASE).multiplyScalar(0.2).lerp(HOT, Math.min(v + lv * 0.1, 1)).multiplyScalar(1 + v * 1.4 + lv * 1.2)
       col.setXYZ(k * 2, color.r, color.g, color.b)
       col.setXYZ(k * 2 + 1, color.r, color.g, color.b)
     })

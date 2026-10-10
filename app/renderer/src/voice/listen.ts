@@ -1,4 +1,5 @@
 import { BASE } from '../api.ts'
+import { openMicStream } from './mic.ts'
 
 /**
  * One spoken request: opens the microphone, waits for speech, stops by itself after a pause, and sends ONE
@@ -52,7 +53,7 @@ export async function listenOnce(opts: ListenOptions = {}): Promise<ListenResult
   const { noSpeechMs = 8000, silenceMs = 1400, maxMs = 45_000 } = opts
   let stream: MediaStream
   try {
-    stream = await navigator.mediaDevices.getUserMedia({ audio: { channelCount: 1, echoCancellation: true, noiseSuppression: true } })
+    stream = await openMicStream() // the microphone picked on the Voz screen (or the system default)
   } catch (e) {
     return { ok: false, code: 'denied', error: `Sem acesso ao microfone (${(e as Error).name}). Libere em Configurações do Windows › Privacidade › Microfone.` }
   }

@@ -4,6 +4,7 @@ import type { AppSettings } from '../global.d.ts'
 import { api, ApiError, type Check as CheckT, type KeyStatus, type Priority, type ProviderView, type TaskState, type VoiceTest } from '../api.ts'
 import { useApp } from '../store.ts'
 import { CommandBar } from './CommandBar.tsx'
+import { getMicId, getMicSounds, listMics, meterPct, openMeter, setMicId, setMicSounds, type MicDevice, type Meter } from '../voice/mic.ts'
 import { providerTone, TONE_COLOR } from '../neural/graph.ts'
 
 const run = (fn: () => Promise<unknown>, after: () => void) => () => void fn().catch(() => {}).finally(after)
@@ -45,6 +46,8 @@ function ProviderControls({ p, keys, reload }: { p: ProviderView; keys: KeyStatu
   const [secret, setSecret] = useState('')
   const [model, setModel] = useState(p.model ?? '')
   const [err, setErr] = useState('')
+  const [allowed, setAllowed] = useState((p.allowedModels ?? []).join('\n'))
+  const allowedList = [...new Set(allowed.split(/\s*[\n,]\s*/).map((m) => m.trim()).filter(Boolean))]
   const key = keys.find((k) => k.name === p.keyEnv)
   const models = p.status?.models ?? []
   const act = (fn: () => Promise<unknown>) => () => void fn().then(() => setErr('')).catch((e) => setErr(e instanceof ApiError ? e.message : String(e))).finally(reload)
@@ -68,7 +71,19 @@ function ProviderControls({ p, keys, reload }: { p: ProviderView; keys: KeyStatu
         )}
         <button className="btn" disabled={!model || model === p.model} onClick={act(() => api.providerUpdate(p.id, { model }))}>Usar modelo</button>
         <label className="switch"><input type="checkbox" checked={p.enabled} onChange={(e) => act(() => api.providerUpdate(p.id, { enabled: e.target.checked }))()} /> Ligada</label>
+        {p.external && (
+          <label className="switch" title="Marque só se os modelos usados aqui não cobram (ex.: sufixo :free). Sem isso o JARVIS só usa esta IA com “autorizo gasto”.">
+            <input type="checkbox" checked={!p.paid} onChange={(e) => act(() => api.providerUpdate(p.id, { free: e.target.checked }))()} /> Grátis
+          </label>
+        )}
       </div>
+      {p.external && (
+        <div className="ctl">
+          <textarea rows={3} value={allowed} onChange={(e) => setAllowed(e.target.value)} placeholder="Modelos permitidos, um por linha, na ordem de uso (vazio = só o modelo escolhido acima). Se a cota de um acabar, vai para o próximo da lista." aria-label={`Modelos permitidos de ${p.label}`} />
+          <button className="btn" disabled={!model || allowedList.includes(model)} onClick={() => setAllowed([...allowedList, model].join('\n'))}>Adicionar o escolhido</button>
+          <button className="btn" disabled={allowedList.join('\n') === (p.allowedModels ?? []).join('\n')} onClick={act(() => api.providerUpdate(p.id, { allowedModels: allowedList }))}>Salvar lista</button>
+        </div>
+      )}
       {err && <p className="err small" role="alert">{err}</p>}
     </div>
   )
@@ -120,7 +135,7 @@ export function AisView() {
               <span className="dot big" style={{ background: TONE_COLOR[providerTone(p)] }} aria-hidden />
               <div className="grow">
                 <h2>{p.label}</h2>
-                <p className="dim small">{p.type} · {p.external ? 'externa' : 'local'} · {p.paid ? 'paga' : 'sem custo'} · prioridade {p.priority}{p.enabled ? '' : ' · desligada'}{p.model ? ` · ${p.model}` : ' · sem modelo'}</p>
+                <p className="dim small">{p.type} · {p.external ? 'externa' : 'local'} · {p.paid ? 'paga' : 'sem custo'} · prioridade {p.priority}{p.enabled ? '' : ' · desligada'}{p.allowedModels?.length ? ` · ${p.allowedModels.length} modelos permitidos` : p.model ? ` · ${p.model}` : ' · sem modelo'}</p>
                 {p.status ? (
                   <div className="levels">
                     <Level name="endpoint" c={p.status.endpoint} />
@@ -253,6 +268,70 @@ export function VoiceView() {
   )
 }
 
+/** Pick the microphone and watch a live level bar: proves the voice really arrives, before anything is transcribed or sent. */
+function MicTest() {
+  const [mics, setMics] = useState<MicDevice[]>([])
+  const [id, setId] = useState(getMicId())
+  const [sounds, setSounds] = useState(getMicSounds())
+  const [testing, setTesting] = useState(false)
+  const [lvl, setLvl] = useState(0)
+  const [peak, setPeak] = useState(0)
+  const [heard, setHeard] = useState(false)
+  const [info, setInfo] = useState('')
+  const [err, setErr] = useState('')
+  const meter = useRef<Meter | null>(null)
+  const timer = useRef(0)
+  const load = () => void listMics().then((l) => { setMics(l); if (id && !l.some((m) => m.id === id)) { setId(''); setMicId('') } }).catch((e) => setErr(`Sem acesso ao microfone (${(e as Error).name}). Libere em Configurações do Windows › Privacidade › Microfone.`))
+  useEffect(() => {
+    load()
+    navigator.mediaDevices?.addEventListener('devicechange', load) // plugging a headset in shows up by itself
+    return () => navigator.mediaDevices?.removeEventListener('devicechange', load)
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+  const stop = () => { clearTimeout(timer.current); meter.current?.stop(); meter.current = null; setTesting(false); setLvl(0) }
+  useEffect(() => stop, [])
+  const start = async (deviceId: string) => {
+    stop(); setErr(''); setPeak(0); setHeard(false)
+    try {
+      let hold = 0
+      meter.current = await openMeter(deviceId, (rms) => {
+        const p = meterPct(rms)
+        setLvl(p)
+        hold = Math.max(hold * 0.995, p)
+        setPeak(hold)
+        if (p > 0.55) setHeard(true) // about -27 dB: clearly above room noise
+      })
+      setInfo(`${meter.current.label || 'microfone padrão'} · ${Math.round(meter.current.rate / 1000)} kHz`)
+      setTesting(true)
+      timer.current = window.setTimeout(stop, 30_000) // never leave the mic open by accident
+    } catch (e) {
+      setErr(`Não consegui abrir o microfone (${(e as Error).name}). Confira a permissão do Windows e se ele está conectado.`)
+    }
+  }
+  const pick = (v: string) => { setId(v); setMicId(v); if (testing) void start(v) }
+  return (
+    <div className="mictest">
+      <div className="ctl">
+        <select value={id} onChange={(e) => pick(e.target.value)} aria-label="Microfone">
+          <option value="">Microfone padrão do Windows</option>
+          {mics.map((m) => <option key={m.id} value={m.id}>{m.label}</option>)}
+        </select>
+        <button className="btn" onClick={load}>Atualizar lista</button>
+        <button className="btn primary" onClick={() => (testing ? stop() : void start(id))}>{testing ? 'Parar teste' : 'Testar microfone'}</button>
+      </div>
+      <div className="meter" role="meter" aria-label="Volume captado pelo microfone" aria-valuemin={0} aria-valuemax={100} aria-valuenow={Math.round(lvl * 100)} data-on={testing}>
+        <i style={{ width: `${lvl * 100}%` }} data-hot={lvl > 0.85} />
+        <b style={{ left: `${peak * 100}%` }} />
+      </div>
+      <p className="small" data-tone={!testing ? 'dim' : heard ? 'ok' : 'warn'}>
+        {!testing ? 'Clique em “Testar microfone” e fale: a barra acompanha a sua voz. Nada é gravado nem enviado neste teste.' : heard ? `✔ Sua voz está sendo captada · ${info}` : `Fale algo… ainda não captei nada acima do ruído · ${info}`}
+      </p>
+      <label className="check"><input type="checkbox" checked={sounds} onChange={(e) => { setSounds(e.target.checked); setMicSounds(e.target.checked) }} /> Sons do microfone: bipe subindo ao começar a ouvir, descendo ao parar, grave se não ouvi nada</label>
+      {err && <p className="err small" role="alert">{err}</p>}
+    </div>
+  )
+}
+
 /** Microphone (listening command) and background behaviour of the installed app: start with Windows, live in the tray. */
 function MicAndBackground() {
   const jv = window.jarvis
@@ -268,8 +347,9 @@ function MicAndBackground() {
     <div className="panel form" style={{ marginTop: 16 }}>
       <h2>Microfone e segundo plano</h2>
       <p className="dim small">Diga `ouvir` na caixa de comando, clique no microfone ou use <b>{cfg?.hotkey.replace('Control', 'Ctrl') ?? 'Ctrl+Alt+J'}</b> (funciona com a janela escondida). O que você falar vira texto e é enviado como qualquer mensagem. O microfone só liga durante a escuta e desliga sozinho depois de uma pausa. A transcrição usa a chave do ElevenLabs acima: o áudio dessa frase sai deste PC para lá.</p>
+      <MicTest />
       <div className="actions">
-        <button className="btn primary" onClick={() => (listen === 'idle' ? void startListen() : stopListen())}>{listen === 'idle' ? 'Testar microfone' : 'Parar'}</button>
+        <button className="btn" onClick={() => (listen === 'idle' ? void startListen() : stopListen())}>{listen === 'idle' ? 'Escuta completa (fala, transcreve e envia)' : 'Parar'}</button>
         <span className="dim small">{voice?.configured ? 'Transcrição pronta.' : 'Falta a chave do ElevenLabs para transcrever.'}</span>
       </div>
       {cfg && (

@@ -50,6 +50,8 @@ export function createRegistry(providerConfigs = [], deps = {}) {
       priority: cfg.priority ?? 100,
       models: cfg.models ?? [],
       defaultModel: cfg.defaultModel ?? cfg.models?.[0] ?? null,
+      // Owner's allowlist (ordered). When not empty the router uses ONLY these models, in this order, and moves to the next one on quota/rate limit.
+      allowedModels: Array.isArray(cfg.allowedModels) ? cfg.allowedModels.filter((m) => typeof m === 'string') : [],
       capabilities: cfg.capabilities ?? ['chat'],
       external: isExternal(cfg),
       allowSensitive: cfg.allowSensitive === true,
@@ -70,10 +72,13 @@ export function createRegistry(providerConfigs = [], deps = {}) {
     list: () => [...entries.values()],
     get: (id) => entries.get(id) ?? null,
     /** Runtime overrides from the owner's settings: on/off, model, priority. */
-    update(id, { enabled, model, priority }) {
+    update(id, { enabled, model, priority, free, allowedModels }) {
       const p = entries.get(id)
       if (!p) return
       if (enabled !== undefined) p.enabled = enabled
+      // "Free" is the owner's word that the chosen model costs nothing; a loopback provider is always free anyway.
+      if (free !== undefined && p.external) p.paid = !free
+      if (allowedModels !== undefined) p.allowedModels = allowedModels
       if (model !== undefined) p.defaultModel = model
       if (priority !== undefined) p.priority = priority
     },

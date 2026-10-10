@@ -22,7 +22,7 @@ Princípios que não negocio:
 ### 1. Conversar e entender
 - Conversa em português com histórico; respostas curtas por padrão, longas quando pedido.
 - Responder por voz (ElevenLabs, ou a voz do Windows se não houver chave) e mostrar legenda enquanto falo.
-- **Escutar:** o Erick diz `ouvir`, clica no microfone ou aperta Ctrl+Alt+J (até com a janela escondida na bandeja); o que ele falar vira texto (transcrição pelo ElevenLabs) e é tratado como uma mensagem normal. O microfone só liga durante a escuta.
+- **Escutar:** o Erick diz `ouvir`, clica no microfone ou aperta Ctrl+Alt+J (até com a janela escondida na bandeja); o que ele falar vira texto (transcrição pelo ElevenLabs) e é tratado como uma mensagem normal. O microfone só liga durante a escuta, com bipes (subindo ao começar, descendo ao parar, grave se não ouvi nada). Na tela Voz dá para escolher qual microfone usar e testá-lo com uma barra de volume ao vivo, sem gravar nada. Enquanto falo (ou ouço), a rede neural e a interface inteira brilham no ritmo do som.
 - Comandos de interface sem IA: estado das IAs, tarefas, timers, criar tarefa, abrir imagem/vídeo por link.
 - "Ainda não": palavra de ativação contínua ("Jarvis…" sempre ouvindo), reconhecimento de quem fala, transcrição 100% offline.
 
@@ -30,6 +30,7 @@ Princípios que não negocio:
 - Escolher entre IA local (leve e pesada), Claude, Gemini, OpenAI, OpenRouter, DeepSeek, Groq, Mistral e Jev, por prioridade, capacidade, custo e disponibilidade.
 - Trocar de IA sozinho quando uma falha, fica sem cota, sem crédito ou com chave inválida (antes do primeiro token; nunca emendo a frase de um modelo na de outro).
 - Pedido "sensível" nunca sai do computador. Provedor pago só com "autorizo gasto".
+- Marcar uma IA externa como **Grátis** (tela IAs) para usá-la sem "autorizo gasto", e dar a ela uma **lista de modelos permitidos** (ex.: só os `:free` do OpenRouter): só esses são usados, na ordem, e se a cota de um acabar passo para o próximo modelo antes de trocar de provedor. Não adivinho o preço de um modelo: "grátis" é o Erick quem declara.
 - Preferir modelo barato (`cheap`) ou forte (`strong`) conforme a tarefa; registrar latência, taxa de sucesso, tokens e gasto estimado por provedor.
 - Streaming token a token; uma porta compatível com OpenAI (`/v1`) para o agente de código do Erick usar o mesmo roteador.
 - "Ainda não": function calling nativo dos provedores (uso um protocolo de JSON em texto), orçamento em dinheiro com bloqueio automático (hoje: limite de tokens e tempo por tarefa).

@@ -100,6 +100,7 @@ export function createHealth({ registry, audit, clock = Date.now }) {
         warning: p.warning,
         priority: p.priority,
         model: p.defaultModel,
+        allowedModels: p.allowedModels,
         capabilities: p.capabilities,
         status: last.get(p.id) ?? null,
         recentErrors: errors.get(p.id) ?? [],

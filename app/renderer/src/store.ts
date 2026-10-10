@@ -3,6 +3,8 @@ import { api, ApiError, speakViaBridge, type AgentJob, type AuditEntry, type Cha
 import { entityForAudit } from './neural/graph.ts'
 import { mediaUrls, parseIntent } from './intents.ts'
 import { listenOnce } from './voice/listen.ts'
+import { trackMic, trackSynthetic } from './voice/level.ts'
+import { chime } from './voice/mic.ts'
 
 import type { ProjectGraph } from '../../electron/projects.ts'
 import type { AgentEvent, Metrics } from '../../electron/transcripts.ts'
@@ -131,16 +133,25 @@ export const useApp = create<State>((set, get) => ({
     if (get().listen !== 'idle' || get().busy) return
     listenCtrl = new AbortController()
     set({ listen: 'listening', listenLevel: 0, caption: { id: liveCaption, text: 'Ouvindo… pode falar.' } })
-    const r = await listenOnce({
-      signal: listenCtrl.signal,
-      onLevel: (v) => set({ listenLevel: v }),
-      onSpeech: () => set({ listen: 'hearing', caption: { id: liveCaption, text: 'Estou te ouvindo…' } }),
-      onProcessing: () => set({ listen: 'transcribing', caption: { id: liveCaption, text: 'Transcrevendo…' } }),
-    })
+    const ctrl = listenCtrl
+    await chime('start') // rising beep = "I am listening"; the mic opens only after it, so it is never recorded
+    const mic = trackMic()
+    const r = ctrl.signal.aborted
+      ? ({ ok: false, code: 'cancelled', error: 'Escuta cancelada.' } as const)
+      : await listenOnce({
+          signal: ctrl.signal,
+          onLevel: (v) => (mic.push(v), set({ listenLevel: v })),
+          onSpeech: () => set({ listen: 'hearing', caption: { id: liveCaption, text: 'Estou te ouvindo…' } }),
+          onProcessing: () => (void chime('stop'), set({ listen: 'transcribing', caption: { id: liveCaption, text: 'Transcrevendo…' } })), // falling beep = "stopped listening, working on it"
+        })
+    mic.stop()
     listenCtrl = null
     set((s) => ({ listen: 'idle', listenLevel: 0, ...(s.caption?.id === liveCaption ? { caption: null } : {}) }))
     if (r.ok) void get().send(r.text)
-    else if (r.code !== 'cancelled') get().addCard('Microfone', { type: 'text', text: r.error })
+    else {
+      if (r.code !== 'cancelled') get().addCard('Microfone', { type: 'text', text: r.error })
+      void chime(r.code === 'cancelled' ? 'stop' : 'error') // low beep = nothing heard / failed
+    }
   },
   stopListen: () => listenCtrl?.abort(),
   job: null,
@@ -343,10 +354,13 @@ export const useApp = create<State>((set, get) => ({
                     : new Promise<void>((done) => {
                         const u = new SpeechSynthesisUtterance(r.text)
                         u.lang = 'pt-BR'
-                        u.onend = u.onerror = () => done()
+                        let stop = () => {}
+                        const fin = () => (stop(), done())
+                        u.onstart = () => { stop = trackSynthetic() } // the Windows voice has no samples to read: the glow follows a speech-like envelope
+                        u.onend = u.onerror = fin
                         speechSynthesis.cancel()
                         speechSynthesis.speak(u)
-                        setTimeout(done, Math.min(Math.max(6000, r.text.length * 120), 60000)) // no installed voice = no onend
+                        setTimeout(fin, Math.min(Math.max(6000, r.text.length * 120), 60000)) // no installed voice = no onend
                       }),
               )
             : new Promise<void>((done) => setTimeout(done, Math.min(Math.max(4000, r.text.length * 65), 25000)))

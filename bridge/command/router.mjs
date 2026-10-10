@@ -35,6 +35,21 @@ export function createRouter({ registry, health, audit, clock = Date.now, cooldo
   const SKIPPABLE = new Set(['auth', 'model_not_found', 'bad_response', 'unconfigured'])
   const coolFor = (e) => (e.kind === 'quota' ? 10 * 60_000 : e.kind === 'auth' ? 5 * 60_000 : cooldownMs)
 
+  // With an allowlist, a failure cools the MODEL (the next listed one is tried before leaving the provider); a bad key cools the whole provider.
+  const cooling = (key) => (cooldown.get(key) ?? 0) > clock()
+  const modelCooling = (p, m) => cooling(p.id) || (p.allowedModels.length > 0 && cooling(`${p.id}|${m}`))
+  const providerCooling = (p) => cooling(p.id) || (p.allowedModels.length > 0 && p.allowedModels.every((m) => cooling(`${p.id}|${m}`)))
+  const coolKey = (p, model, e) => (p.allowedModels.length > 0 && e.kind !== 'auth' ? `${p.id}|${model}` : p.id)
+  /** Models to try on a provider, in order. Allowlist wins over defaultModel and over a model named by the caller. */
+  const modelsFor = (p, req) => {
+    const list = p.allowedModels
+    if (list.length === 0) return [req.model ?? p.defaultModel]
+    const first = [req.model, p.defaultModel].find((m) => list.includes(m))
+    return first ? [first, ...list.filter((m) => m !== first)] : list
+  }
+  /** Flat try-order: every provider's models, provider order kept. */
+  const planFor = (usable, req) => usable.flatMap((p) => modelsFor(p, req).map((model) => ({ p, model })))
+
   /**
    * Paid providers are simply left out of a request the owner has not authorised to spend money on, so a local model
    * keeps answering for free. Only when NOTHING free is left does the call stop with the "not confirmed" error.
@@ -59,7 +74,7 @@ export function createRouter({ registry, health, audit, clock = Date.now, cooldo
         : p.type === 'unverified' ? 'integration not verified'
         : !p.capabilities.includes(req.capability) ? `no ${req.capability} capability`
         : req.sensitive && p.external && !p.allowSensitive ? 'sensitive data not allowed to leave this machine'
-        : (cooldown.get(p.id) ?? 0) > clock() ? 'cooling down after a failure'
+        : providerCooling(p) ? 'cooling down after a failure'
         : null
       if (why) skipped.push({ provider: p.id, skipped: why })
       else out.push(p)
@@ -101,12 +116,12 @@ export function createRouter({ registry, health, audit, clock = Date.now, cooldo
   async function run(request) {
     const { req, usable, attempts } = prepare(request)
 
-    for (const p of usable) {
-      const model = req.model ?? p.defaultModel
+    for (const { p, model } of planFor(usable, req)) {
       if (!model) {
         attempts.push({ provider: p.id, skipped: 'no model configured' })
         continue
       }
+      if (modelCooling(p, model)) continue
       try {
         const out = await p.adapter.infer({ model, prompt: req.prompt, messages: req.messages, system: req.system, maxTokens: req.maxTokens })
         audit?.record('ai.infer', { provider: p.id, model, ok: true, promptChars: req.prompt.length, latencyMs: out.latencyMs })
@@ -117,8 +132,8 @@ export function createRouter({ registry, health, audit, clock = Date.now, cooldo
         const e = err instanceof ProviderError ? err : new ProviderError('network', String(err?.message ?? err), { provider: p.id })
         health?.pushError(p.id, e)
         note(p, false)
-        if (e.retryable || SKIPPABLE.has(e.kind)) cooldown.set(p.id, clock() + coolFor(e))
-        attempts.push({ provider: p.id, error: e.toJSON() })
+        if (e.retryable || SKIPPABLE.has(e.kind)) cooldown.set(coolKey(p, model, e), clock() + coolFor(e))
+        attempts.push({ provider: p.id, model, error: e.toJSON() })
         audit?.record('ai.infer', { provider: p.id, model, ok: false, kind: e.kind, promptChars: req.prompt.length })
         // A missing/expired key, a wrong model or an empty answer is THIS provider's problem: the next one still answers.
         if ((!e.retryable && !SKIPPABLE.has(e.kind)) || !p.allowFallback) throw new RouteError(`${p.id} failed: ${e.message}`, attempts)
@@ -138,12 +153,12 @@ export function createRouter({ registry, health, audit, clock = Date.now, cooldo
   async function* runStream(request) {
     const { req, usable, attempts } = prepare(request)
     const t0 = clock()
-    for (const p of usable) {
-      const model = req.model ?? p.defaultModel
+    for (const { p, model } of planFor(usable, req)) {
       if (!model) {
         attempts.push({ provider: p.id, skipped: 'no model configured' })
         continue
       }
+      if (modelCooling(p, model)) continue
       if (attempts.some((a) => a.error) && clock() - t0 > (req.deadlineMs ?? 240_000)) {
         attempts.push({ provider: p.id, skipped: 'tempo total esgotado' })
         break
@@ -177,8 +192,8 @@ export function createRouter({ registry, health, audit, clock = Date.now, cooldo
         const e = err instanceof ProviderError ? err : new ProviderError('network', String(err?.message ?? err), { provider: p.id })
         health?.pushError(p.id, e)
         note(p, false)
-        if (e.retryable || SKIPPABLE.has(e.kind)) cooldown.set(p.id, clock() + coolFor(e))
-        attempts.push({ provider: p.id, error: e.toJSON() })
+        if (e.retryable || SKIPPABLE.has(e.kind)) cooldown.set(coolKey(p, model, e), clock() + coolFor(e))
+        attempts.push({ provider: p.id, model, error: e.toJSON() })
         audit?.record('ai.infer', { provider: p.id, model, ok: false, stream: true, kind: e.kind, promptChars: req.prompt.length })
         if (started) { yield { error: e.toJSON(), partial: true, attempts }; return }
         if ((!e.retryable && !SKIPPABLE.has(e.kind)) || !p.allowFallback) throw new RouteError(`${p.id} failed: ${e.message}`, attempts)
