@@ -62,6 +62,13 @@ export interface MissionView {
   log: { at: string; kind: string; text: string }[]; startedAt?: string; updatedAt?: string
 }
 export interface MissionRow { id: string; goal: string; status: MissionStatus; phase: string; steps: number; done: number; createdAt: string }
+export interface PanelRow { id: string; title: string; purpose: string | null; status: string; pinned: boolean; owner: { kind: string; id?: string }; createdAt: string; updatedAt: string; specRev: number }
+export interface PanelView {
+  id: string; name: string; status: 'loading' | 'ready' | 'error' | 'done'; statusText: string; pinned: boolean; owner: { kind: string }; trusted: boolean; updatedAt: string
+  specRev: number; spec?: any; data: Record<string, { rev: number; value: unknown }>; sources: Record<string, { ok: boolean | null; error: string | null }>
+  stateOps?: { rev: number; values: Record<string, string | number | boolean | (string | number)[]> }; stateRev: number
+}
+export interface PanelActionResult { ok: boolean; needsConfirm?: boolean; message?: string; tool?: string; args?: unknown; error?: string; code?: string; ask?: string; client?: boolean; result?: unknown; verified?: boolean | null; evidence?: string | null; summary?: string; setState?: Record<string, any>; stored?: boolean }
 export interface MemoryItem { id: string; at: string; kind: string; text: string; source: string; confidence: string; tags: string[] }
 export interface DiskInfo { drive: string; label: string; totalGB: number; freeGB: number; usedGB: number; freePct: number | null }
 export interface MonitorView {
@@ -115,6 +122,15 @@ export const api = {
   missionConfirm: (id: string, approve: boolean) => call<{ confirmed: number }>('POST', 'mission/confirm', { id, approve }),
   missionAnswer: (id: string, text: string) => call<{ ok: boolean }>('POST', 'mission/answer', { id, text }),
   missionResume: (id: string) => call<{ ok: boolean }>('POST', 'mission/resume', { id }),
+  uiList: () => call<PanelRow[]>('GET', 'ui/list'),
+  uiPanel: (id: string, since: { specRev: number; stateRev: number; data: Record<string, number> }, force = false) => call<PanelView>('GET', `ui/panel?id=${encodeURIComponent(id)}&specRev=${since.specRev}&stateRev=${since.stateRev}&d=${encodeURIComponent(Object.entries(since.data).map(([k, v]) => `${k}:${v}`).join(','))}${force ? '&force=1' : ''}`),
+  uiAction: (id: string, action: string, body: { state?: object; row?: object; form?: object; confirmed?: boolean }) => call<PanelActionResult>('POST', 'ui/action', { id, action, ...body }),
+  uiClose: (id: string) => call<{ ok: boolean }>('POST', 'ui/close', { id }),
+  uiPin: (id: string, name?: string) => call<{ ok: boolean }>('POST', 'ui/pin', { id, name }),
+  uiUnpin: (id: string) => call<{ ok: boolean }>('POST', 'ui/unpin', { id }),
+  uiState: (id: string, state: object) => call<{ ok: boolean }>('POST', 'ui/state', { id, state }),
+  uiGenerate: (prompt: string, sensitive: boolean, confirm: boolean) => call<{ ok: boolean; id?: string; via?: string; errors?: { path: string; msg: string }[] }>('POST', 'ui/generate', { prompt, sensitive, confirm }),
+  uiTemplate: (name: string) => call<{ ok: boolean; id?: string; message?: string }>('POST', 'ui/template', { name }),
   memory: () => call<MemoryItem[]>('GET', 'memory'),
   memoryForget: (id: string) => call<{ ok: boolean }>('POST', 'memory/forget', { id }),
   agentCancel: (id: string) => call<{ ok: boolean }>('POST', 'agent/cancel', { id }),

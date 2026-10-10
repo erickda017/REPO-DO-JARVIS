@@ -168,9 +168,10 @@ export function createApi({ openai, health, router, services, projects, tasks, t
     'GET ui/panel': async (q) => {
       const data = {}
       for (const part of String(q.d ?? '').split(',').filter(Boolean)) { const [n, r] = part.split(':'); if (n) data[n] = Number(r) || 0 }
-      return (await genui.view(String(q.id ?? ''), { specRev: Number(q.specRev) || 0, stateRev: Number(q.stateRev) || 0, data })) ?? Promise.reject(new HttpError(404, 'unknown panel'))
+      return (await genui.view(String(q.id ?? ''), { specRev: Number(q.specRev) || 0, stateRev: Number(q.stateRev) || 0, data }, { force: q.force === '1' })) ?? Promise.reject(new HttpError(404, 'unknown panel'))
     },
     'POST ui/create': async (b) => genui.create(b.spec, { owner: { kind: 'user' } }),
+    'POST ui/template': async (b) => genui.template(String(b.name ?? '')),
     'POST ui/quick': async (b) => genui.quick(b, { owner: { kind: 'user' } }),
     'POST ui/generate': async (b) => genui.generate({ prompt: String(b.prompt ?? ''), data: b.data, hint: typeof b.hint === 'string' ? b.hint : undefined, title: typeof b.title === 'string' ? b.title : undefined, sensitive: b.sensitive === true, confirmSpend: b.confirm === true, owner: { kind: 'user' } }),
     'POST ui/update': async (b) => genui.update(String(b.id ?? ''), b.ops),

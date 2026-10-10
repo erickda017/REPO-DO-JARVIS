@@ -7,7 +7,7 @@ import { listenOnce } from './voice/listen.ts'
 import type { ProjectGraph } from '../../electron/projects.ts'
 import type { AgentEvent, Metrics } from '../../electron/transcripts.ts'
 
-export type View = 'home' | 'chat' | 'code' | 'projects' | 'ia' | 'agent' | 'missions' | 'ais' | 'system' | 'voice'
+export type View = 'home' | 'chat' | 'code' | 'projects' | 'ia' | 'agent' | 'missions' | 'panels' | 'ais' | 'system' | 'voice'
 export interface Touch { id: number; path: string; at: number }
 
 export type CardBody =
@@ -38,6 +38,9 @@ interface State {
   caption: { id: number; text: string } | null
   /** Microphone state: idle -> listening (waiting for speech) -> hearing -> transcribing -> idle. */
   listen: 'idle' | 'listening' | 'hearing' | 'transcribing'
+  /** A generative panel the owner should see next (just created by the agent, or opened from a link). */
+  panelFocus: string | null
+  setPanelFocus: (id: string | null) => void
   listenLevel: number
   startListen: () => Promise<void>
   stopListen: () => void
@@ -121,6 +124,8 @@ export const useApp = create<State>((set, get) => ({
   speak: false,
   caption: null,
   listen: 'idle',
+  panelFocus: null,
+  setPanelFocus: (id) => set({ panelFocus: id }),
   listenLevel: 0,
   startListen: async () => {
     if (get().listen !== 'idle' || get().busy) return

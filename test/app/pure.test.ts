@@ -1,4 +1,4 @@
-﻿import test from 'node:test'
+import test from 'node:test'
 import assert from 'node:assert/strict'
 import { Activity, buildCloud, entityForAudit, layoutEntities, mulberry32, providerTone } from '../../app/renderer/src/neural/graph.ts'
 import { mediaUrls, parseIntent } from '../../app/renderer/src/intents.ts'
@@ -111,4 +111,54 @@ test('listen and mission commands are recognised, ordinary chat is not hijacked'
   assert.deepEqual(parseIntent('missão: corrija os testes do meu projeto'), { kind: 'mission', goal: 'corrija os testes do meu projeto' })
   assert.equal(parseIntent('missão: x').kind, 'chat', 'too short to be a goal')
   for (const t of ['quero ouvir música', 'você ouviu o que eu disse?', 'o que é um microfone?']) assert.equal(parseIntent(t).kind, 'chat', t)
+})
+
+import { applyOps, coerce, filterRows, mergeDefaults, sortRows, validateField, initialFieldValue } from '../../app/renderer/src/genui/state.ts'
+import { fmt, fmtBytes, fmtDuration, niceScale } from '../../app/renderer/src/genui/format.ts'
+
+test('panel state: a spec update fills only missing keys, server overrides touch only the keys they name, nothing the user set is lost', () => {
+  const user = { tab: 'dados', q: 'relatório' }
+  assert.equal(mergeDefaults(user, { tab: 'grafico', q: '', novo: 5 }).tab, 'dados')
+  assert.deepEqual(mergeDefaults(user, { tab: 'grafico', q: '', novo: 5 }), { tab: 'dados', q: 'relatório', novo: 5 })
+  assert.equal(mergeDefaults(user, { tab: 'x' }), user, 'same object when nothing changes: no re-render')
+  assert.deepEqual(applyOps(user, { tab: 'grafico' }), { tab: 'grafico', q: 'relatório' })
+  assert.equal(applyOps(user, undefined), user)
+})
+
+test('panel tables: numeric-aware sort, stable ties, case-insensitive filter over the declared columns', () => {
+  const rows = [{ n: 'b10', v: 10 }, { n: 'a2', v: 2 }, { n: 'B1', v: 10 }, { n: 'c', v: undefined as unknown as number }]
+  assert.deepEqual(sortRows(rows, 'v', 'asc').map((r) => r.n), ['a2', 'b10', 'B1', 'c'], 'ties keep their original order, missing values last')
+  assert.deepEqual(sortRows(rows, 'v', 'desc').map((r) => r.n), ['b10', 'B1', 'a2', 'c'])
+  assert.deepEqual(sortRows(rows, 'n', 'asc').map((r) => r.n), ['a2', 'b10', 'B1', 'c'].sort((x, y) => x.localeCompare(y, 'pt-BR', { numeric: true, sensitivity: 'base' })))
+  assert.deepEqual(filterRows(rows, 'B1', ['n']).map((r) => r.n), ['b10', 'B1'], 'substring match, case-insensitive')
+  assert.deepEqual(filterRows(rows, 'a2', ['n']).map((r) => r.n), ['a2'])
+  assert.equal(filterRows(rows, '  ', ['n']).length, 4)
+})
+
+test('panel forms: required, number range, pattern and select options are validated before anything runs', () => {
+  const f = { name: 'q', kind: 'text', required: true, pattern: '^[a-z]+$' }
+  assert.equal(validateField(f, ''), 'Obrigatório')
+  assert.equal(validateField(f, 'ABC'), 'Formato inválido')
+  assert.equal(validateField(f, 'abc'), null)
+  const n = { name: 'n', kind: 'number', min: 1, max: 5 }
+  assert.equal(validateField(n, 0), 'Mínimo 1')
+  assert.equal(validateField(n, 9), 'Máximo 5')
+  assert.equal(validateField(n, 'x'), 'Digite um número')
+  assert.equal(validateField(n, ''), null)
+  assert.equal(validateField({ name: 's', kind: 'select', options: [{ value: 'a', label: 'A' }] }, 'zzz'), 'Escolha uma opção da lista')
+  assert.equal(coerce(n, '3'), 3)
+  assert.equal(initialFieldValue({ name: 't', kind: 'toggle' }, {}), false)
+  assert.equal(initialFieldValue(f, { q: 'x' }), 'x')
+})
+
+test('panel formatting: pt-BR numbers, bytes, durations and axis scales never throw on odd input', () => {
+  assert.equal(fmt(1234.5, 'number'), '1.234,5')
+  assert.equal(fmtBytes(1536), '1,5 KB')
+  assert.equal(fmtDuration(125), '2 min 5 s')
+  assert.equal(fmt('abc', 'number'), 'abc')
+  assert.equal(fmt(null), '—')
+  assert.equal(fmt(42, 'percent'), '42%')
+  const s = niceScale(87)
+  assert.ok(s.max >= 87 && s.ticks[0] === 0 && s.ticks.length >= 3)
+  assert.deepEqual(niceScale(0).ticks, [0, 1])
 })

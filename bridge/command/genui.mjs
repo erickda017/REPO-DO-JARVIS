@@ -57,7 +57,8 @@ export function quickSpec({ kind = 'table', title = 'Painel', purpose, data, col
       const xk = x ?? strKey(rows)
       const ms = (series?.length ? series.map((s) => (typeof s === 'string' ? s : s.key)) : numKeys(rows).filter((k) => k !== xk)).slice(0, 6)
       spec.data.rows = rows
-      const best = ms.map((m) => { const top = rows.reduce((a, b) => ((b?.[m] ?? -Infinity) > (a?.[m] ?? -Infinity) ? b : a), rows[0]); return { label: `Maior ${label(m)}`, value: String(top?.[xk] ?? '—'), hint: `${top?.[m] ?? ''}${unit ? ' ' + unit : ''}` } })
+      // the unit belongs to the first metric (the one the axis is drawn in); other metrics may measure something else
+      const best = ms.map((m, i) => { const top = rows.reduce((a, b) => ((b?.[m] ?? -Infinity) > (a?.[m] ?? -Infinity) ? b : a), rows[0]); return { label: `Maior ${label(m)}`, value: String(top?.[xk] ?? '—'), hint: `${top?.[m] ?? ''}${unit && i === 0 ? ' ' + unit : ''}` } })
       spec.data.best = best
       spec.root = { type: 'stack', children: [...lead, { type: 'grid', cols: Math.min(3, Math.max(1, best.length)), children: best.map((b, i) => ({ type: 'stat', label: { ref: `data.best[${i}].label` }, value: { ref: `data.best[${i}].value` }, hint: undefined, delta: { ref: `data.best[${i}].hint` }, tone: TONE_CYCLE[i % TONE_CYCLE.length] === 'accent' ? 'accent' : 'info' })) }, { type: 'tabs', stateKey: 'tab', tabs: [{ id: 'chart', label: 'Comparação', children: [chart('bar')] }, { id: 'data', label: 'Dados', children: [asTable()] }] }] }
       break
@@ -134,6 +135,48 @@ function missionData(v) {
   }
 }
 
+/** Live system dashboard: bound to the monitor (CPU/RAM history and disks measured by the bridge). */
+export function systemSpec() {
+  return {
+    v: 1, title: 'Sistema ao vivo', purpose: 'CPU, memória e discos medidos agora pelo JARVIS; atualiza sozinho.',
+    sources: { m: { kind: 'monitor', everySec: 5 } },
+    root: { type: 'stack', gap: 'md', children: [
+      { type: 'grid', cols: 4, children: [
+        { type: 'stat', label: 'CPU', value: { ref: 'data.m.summary.cpu.usagePct' }, unit: '%', tone: 'accent', hint: { ref: 'data.m.summary.cpu.model' } },
+        { type: 'stat', label: 'Memória', value: { ref: 'data.m.summary.memory.usedPct' }, unit: '%', tone: 'info', hint: '{{data.m.summary.memory.usedGB}} de {{data.m.summary.memory.totalGB}} GB' },
+        { type: 'stat', label: 'RAM livre', value: { ref: 'data.m.summary.memory.freeGB' }, unit: 'GB', tone: 'ok' },
+        { type: 'stat', label: 'Ligado há', value: { ref: 'data.m.summary.uptimeHours' }, unit: 'h' },
+      ] },
+      { type: 'tabs', stateKey: 'tab', tabs: [
+        { id: 'hist', label: 'Histórico', children: [{ type: 'chart', kind: 'area', data: { ref: 'data.m.history' }, x: 'hora', series: [{ key: 'cpu', label: 'CPU %', tone: 'accent' }, { key: 'ram', label: 'RAM %', tone: 'info' }], unit: '%', height: 260 }] },
+        { id: 'disks', label: 'Discos', children: [
+          { type: 'chart', kind: 'hbar', data: { ref: 'data.m.disks' }, x: 'drive', series: [{ key: 'usedGB', label: 'Usado (GB)', tone: 'warn' }, { key: 'freeGB', label: 'Livre (GB)', tone: 'ok' }], stacked: true, unit: 'GB' },
+          { type: 'table', rows: { ref: 'data.m.disks' }, columns: [{ key: 'drive', label: 'Unidade' }, { key: 'label', label: 'Nome' }, { key: 'totalGB', label: 'Total', format: 'gb', align: 'right' }, { key: 'freeGB', label: 'Livre', format: 'gb', align: 'right' }, { key: 'freePct', label: 'Livre %', format: 'percent', align: 'right' }], sortable: true },
+        ] },
+      ] },
+      { type: 'stack', dir: 'h', children: [{ type: 'button', label: 'Atualizar agora', action: 'refresh' }, { type: 'button', label: 'Pedir análise de espaço ao JARVIS', action: 'analisar' }] },
+    ] },
+    actions: { refresh: { type: 'refresh' }, analisar: { type: 'ask', text: 'Analise o espaço em disco, me diga o que ocupa mais e sugira o que posso apagar, com tamanhos.' } },
+  }
+}
+
+/** File finder: a search form wired to fs_search; rows can be previewed or sent to the Recycle Bin (with confirmation). */
+export function filesSpec(root = '') {
+  return {
+    v: 1, title: 'Arquivos', purpose: 'Procure arquivos nas pastas liberadas e aja sobre eles. Tudo passa pelas permissões do Agente.',
+    state: { root, q: '' }, data: { found: [], preview: null },
+    actions: {
+      search: { type: 'tool', tool: 'fs_search', args: { root: { ref: 'state.root' }, name: { ref: 'state.q' }, max: 100 }, into: 'data.found', pick: 'data.results', messages: { loading: 'Procurando…', error: 'A busca falhou' } },
+      preview: { type: 'tool', tool: 'fs_read', args: { path: { ref: 'row.path' }, maxKB: 24 }, into: 'data.preview', pick: 'data', messages: { error: 'Não consegui ler' } },
+      remove: { type: 'tool', tool: 'fs_delete', args: { path: { ref: 'row.path' } }, messages: { ok: 'Enviado para a Lixeira' } },
+    },
+    root: { type: 'stack', gap: 'md', children: [
+      { type: 'form', fields: [{ name: 'root', label: 'Pasta', kind: 'path', required: true, placeholder: 'C:\\pasta\\liberada' }, { name: 'q', label: 'Nome contém', kind: 'text', required: true }], submit: { label: 'Procurar', action: 'search', tone: 'accent' } },
+      { type: 'files', items: { ref: 'data.found' }, filter: true, itemActions: [{ label: 'Ver', action: 'preview' }, { label: 'Apagar', action: 'remove', tone: 'bad' }], empty: 'Nada encontrado ainda: preencha a pasta e o nome.' },
+      { type: 'card', title: 'Pré-visualização', show: { ref: 'data.preview' }, children: [{ type: 'text', text: { ref: 'data.preview.text' }, variant: 'code' }] },
+    ] },
+  }
+}
 // ------------------------------------------------------------------------------------------------ component catalog
 /** Compact catalogue for models (also returned by the ui_catalog tool). */
 export const CATALOG = `Painéis são JSON declarativo (v:1). Estrutura: {"v":1,"title","purpose","state":{},"data":{},"sources":{},"actions":{},"root":<nó>}.
@@ -229,6 +272,12 @@ export function createGenUi({ tools, access, flags = null, router = null, missio
       return { ok: true, id: p.id, warnings: v.warnings }
     },
     quick(args, opts) { return api.create(quickSpec(args), opts) },
+    /** Ready-made panels bound to real data: 'sistema' (live monitor) and 'arquivos' (finder over the granted folders). */
+    async template(name, opts = { owner: { kind: 'user' } }) {
+      if (name === 'sistema') return api.create(systemSpec(), { ...opts, trusted: true })
+      if (name === 'arquivos') return api.create(filesSpec(access.snapshot().roots[0]?.path ?? ''), opts)
+      return { ok: false, errors: [{ path: 'name', msg: 'modelo desconhecido (sistema | arquivos)' }] }
+    },
     /** Mission panel: bound to the live mission view, trusted (its buttons drive that mission only). */
     forMission(missionId, goal) { return api.create(missionSpec(missionId, goal), { owner: { kind: 'mission', id: missionId }, trusted: true }) },
 
@@ -289,11 +338,11 @@ export function createGenUi({ tools, access, flags = null, router = null, missio
     },
 
     /** What the renderer polls: only what changed since the revisions it already has. Refreshes stale live sources first. */
-    async view(id, since = {}) {
+    async view(id, since = {}, { force = false } = {}) {
       await ready()
       const p = panels.get(id)
       if (!p) return null
-      await refreshSources(p)
+      await refreshSources(p, force)
       const dataChanged = {}
       for (const [name, rev] of Object.entries(p.dataRev)) if ((since.data?.[name] ?? 0) < rev && name in p.data) dataChanged[name] = { rev, value: p.data[name] }
       return {
@@ -467,7 +516,8 @@ export function createGenUi({ tools, access, flags = null, router = null, missio
         value = missionData(v)
       } else if (s.kind === 'monitor') {
         if (!monitor) throw new Error('monitor indisponível')
-        value = { summary: monitor.summary(), history: monitor.history().slice(-60), disks: await monitor.disks().catch(() => []) }
+        // history as {hora, cpu, ram} so a chart can use it directly (epoch milliseconds make poor axis labels)
+        value = { summary: monitor.summary(), history: monitor.history().slice(-60).map((h) => ({ hora: new Date(h.t).toLocaleTimeString('pt-BR'), cpu: h.cpu ?? 0, ram: h.memUsedPct })), disks: await monitor.disks().catch(() => []) }
       }
       if (JSON.stringify(value) !== JSON.stringify(p.data[name])) { p.data[name] = value; bump(p, name) }
       meta.ok = true; meta.error = null
@@ -478,7 +528,7 @@ export function createGenUi({ tools, access, flags = null, router = null, missio
       inflight.delete(key)
     }
   }
-  async function refreshSources(p) { await Promise.all(Object.keys(p.spec.sources ?? {}).map((n) => refreshSource(p, n))) }
+  async function refreshSources(p, force = false) { await Promise.all(Object.keys(p.spec.sources ?? {}).map((n) => refreshSource(p, n, { force }))) }
 
   return api
 }

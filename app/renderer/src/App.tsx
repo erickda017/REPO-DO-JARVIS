@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
-import { Activity, Bot, Workflow, Cpu, FolderGit2, Power, MessageSquare, Mic, Network, PanelLeftClose, PanelLeftOpen, Terminal } from 'lucide-react'
+import { Activity, Bot, LayoutDashboard, Workflow, Cpu, FolderGit2, Power, MessageSquare, Mic, Network, PanelLeftClose, PanelLeftOpen, Terminal } from 'lucide-react'
 import { useApp, type View } from './store.ts'
+import { api } from './api.ts'
 import { NeuralScene } from './neural/Scene.tsx'
 import { FloatingLayer } from './ui/Floating.tsx'
 import { CommandBar } from './ui/CommandBar.tsx'
@@ -11,6 +12,7 @@ import { ProjectsView } from './ui/ProjectsView.tsx'
 import { IaView } from './ui/IaView.tsx'
 import { AgentView } from './ui/AgentView.tsx'
 import { MissionsView } from './ui/MissionsView.tsx'
+import { PanelsView } from './ui/PanelsView.tsx'
 import { AisView, ChatView, SystemView, VoiceView } from './ui/Views.tsx'
 
 const NAV: { id: View; label: string; icon: typeof Network }[] = [
@@ -20,6 +22,7 @@ const NAV: { id: View; label: string; icon: typeof Network }[] = [
   { id: 'projects', label: 'Projetos', icon: FolderGit2 },
   { id: 'agent', label: 'Agente', icon: Bot },
   { id: 'missions', label: 'Missões', icon: Workflow },
+  { id: 'panels', label: 'Painéis', icon: LayoutDashboard },
   { id: 'ia', label: 'IA local', icon: Power },
   { id: 'ais', label: 'IAs', icon: Cpu },
   { id: 'system', label: 'Sistema', icon: Activity },
@@ -64,12 +67,26 @@ export function App() {
     void refresh().then(probe)
     void pollAudit()
     void loadProjects()
+    // A panel the agent just created opens itself (not while the owner is typing in the terminal).
+    const seenPanels = new Set<string>()
+    let primed = false
+    const watchPanels = () => void api.uiList().then((l) => {
+      for (const p of l) {
+        if (!seenPanels.has(p.id)) {
+          seenPanels.add(p.id)
+          if (primed && p.owner.kind === 'agent') { const st = useApp.getState(); st.setPanelFocus(p.id); if (st.view !== 'code') st.setView('panels') }
+        }
+      }
+      primed = true
+    }).catch(() => {})
+    watchPanels()
+    const d = setInterval(watchPanels, 2000)
     // Global hotkey / tray menu: start listening.
     const offListen = window.jarvis?.app?.onListen(() => void useApp.getState().startListen())
     const a = setInterval(() => void refresh(), 4000)
     const b = setInterval(() => void pollAudit(), 1500)
     const c = setInterval(() => void probe(), 60000)
-    return () => (clearInterval(a), clearInterval(b), clearInterval(c), offListen?.())
+    return () => (clearInterval(a), clearInterval(b), clearInterval(c), clearInterval(d), offListen?.())
   }, [refresh, pollAudit, probe, loadProjects])
 
   return (
@@ -101,6 +118,7 @@ export function App() {
         {view === 'projects' && <ProjectsView />}
         {view === 'agent' && <AgentView />}
         {view === 'missions' && <MissionsView />}
+        {view === 'panels' && <PanelsView />}
         {view === 'ia' && <IaView />}
         {view === 'ais' && <AisView />}
         {view === 'system' && <SystemView />}
