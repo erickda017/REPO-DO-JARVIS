@@ -105,3 +105,10 @@ test('transcript metrics: usage counted once per message id, tools, files, todos
   assert.equal(applyLine('not json', m).length, 0)
   assert.equal(projectDirName(String.raw`G:\JARIVS`), 'G--JARIVS')
 })
+
+test('listen and mission commands are recognised, ordinary chat is not hijacked', () => {
+  for (const t of ['ouvir', 'Jarvis, ouça', 'escute', 'modo escuta', 'ativar microfone', 'me escute!']) assert.deepEqual(parseIntent(t), { kind: 'listen' }, t)
+  assert.deepEqual(parseIntent('missão: corrija os testes do meu projeto'), { kind: 'mission', goal: 'corrija os testes do meu projeto' })
+  assert.equal(parseIntent('missão: x').kind, 'chat', 'too short to be a goal')
+  for (const t of ['quero ouvir música', 'você ouviu o que eu disse?', 'o que é um microfone?']) assert.equal(parseIntent(t).kind, 'chat', t)
+})

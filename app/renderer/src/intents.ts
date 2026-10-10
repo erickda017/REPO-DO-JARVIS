@@ -42,7 +42,7 @@ export function parseIntent(raw: string): Intent {
   }
 
   // The listening command: after it the next thing said is turned into text and sent like any typed message.
-  if (/^(?:jarvis[,!\s]+)?(?:ouv(?:ir|e|a)|escut(?:ar|e|a)|modo (?:de )?(?:escuta|voz)|ativar (?:o )?microfone|me (?:ou[cç]a|escute))[\s!.]*$/i.test(text)) return { kind: 'listen' }
+  if (/^(?:jarvis[,!\s]+)?(?:ouv(?:ir|e|a)|ou[cç]a|escut(?:ar|e|a)|modo (?:de )?(?:escuta|voz)|ativar (?:o )?microfone|me (?:ou[cç]a|escute))[\s!.]*$/i.test(text)) return { kind: 'listen' }
 
   // "missão: <objetivo>" starts a planned, verified, multi-agent job (the Missões screen follows it).
   const mission = text.match(/^miss[aã]o\s*[:\-]\s*([\s\S]{5,})$/i)
