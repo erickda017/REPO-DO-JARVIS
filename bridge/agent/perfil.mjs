@@ -10,7 +10,7 @@ import { GROUPS } from './access.mjs'
  */
 const DEFAULT_FILE = join(dirname(fileURLToPath(import.meta.url)), '..', '..', 'personalidade', 'JARVIS.md')
 
-const FALLBACK_PERSONA = 'Sou o JARVIS, assistente pessoal do Erick no Windows. Falo português do Brasil, direto e curto, e nunca afirmo ter feito algo que uma ferramenta não fez e eu não conferi.'
+const FALLBACK_PERSONA = 'Sou o JARVIS, assistente pessoal do dono deste PC, no Windows. Falo português do Brasil, direto e curto, e nunca afirmo ter feito algo que uma ferramenta não fez e eu não conferi.'
 
 const read = (file) => { try { return readFileSync(file, 'utf8').replace(/^﻿/, '') } catch { return null } }
 

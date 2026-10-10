@@ -153,7 +153,7 @@ const stopTerm = () => {
 const agentPath = (): string | null => {
   const saved = readJson<{ agent?: string }>(userFile('code.json'), {}).agent
   if (saved && existsSync(saved)) return saved
-  const guess = 'G:\\NOVA IA DO UMBRA\\agente-codigo\\agente.js'
+  const guess = join(ROOT, 'ia-local', 'agente-codigo', 'agente.js') // optional, never versioned: only present if the owner put an agent there
   return existsSync(guess) ? guess : null
 }
 /** The owner's own Node (agents may use native modules built for it); falls back to the one inside Electron. */
@@ -163,7 +163,7 @@ const claudeFound = () => { try { execFileSync('where.exe', ['claude'], { stdio:
 /** Where the local AI lives: the owner's saved choice, else the copy inside this repo, else the old default location. */
 const iaRoot = (): string | null => {
   const saved = readJson<{ root?: string }>(userFile('ia.json'), {}).root
-  for (const c of [saved, join(ROOT, 'ia-local'), 'G:/JARIVS/ia-local']) if (c && iaValid(c)) return c
+  for (const c of [saved, join(ROOT, 'ia-local')]) if (c && iaValid(c)) return c
   return null
 }
 const IA_MODES = new Set<IaMode>(['leve', 'so-ia', 'so-cris', 'completo'])

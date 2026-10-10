@@ -28,7 +28,7 @@ export function CodeView() {
   const fit = useRef<FitAddon | null>(null)
   const jv = window.jarvis
 
-  useEffect(() => { void loadProjects(); void jv?.code.engines().then(setEngines) }, [loadProjects, jv])
+  useEffect(() => { void loadProjects(); void jv?.code.engines().then((e) => { setEngines(e); if (!e.claude) setEngine((cur) => (cur === 'claude' ? 'shell' : cur)) }) }, [loadProjects, jv]) // Claude Code is optional: without it the terminal opens first
   useEffect(() => { if (!root && projects[0]) setRoot(projects[0].root) }, [projects, root])
 
   useEffect(() => {
@@ -87,7 +87,7 @@ export function CodeView() {
           {engine === 'agent' && <button className="btn" onClick={() => void jv.code.setAgentPath().then((p) => setEngines((e) => (e ? { ...e, agent: p } : e)))} disabled={running}>{engines?.agent ? 'Trocar agente' : 'Definir agente'}</button>}
           {running ? <button className="btn danger" onClick={stop}><Square size={14} /> Parar</button> : <button className="btn primary" onClick={() => void start()} disabled={!usable || !root}><Play size={14} /> Iniciar</button>}
         </div>
-        {!usable && <p className="dim small">{engine === 'claude' ? 'O comando "claude" não está no PATH desta máquina.' : 'Defina o arquivo que inicia o seu agente.'}</p>}
+        {!usable && <p className="dim small">{engine === 'claude' ? 'O Claude Code não está instalado (é opcional, o JARVIS funciona sem ele). Use o Terminal ou instale-o e faça login.' : 'Opcional: aponte o arquivo que inicia um agente de terminal seu. O JARVIS funciona sem ele.'}</p>}
         {engine === 'agent' && engines?.agent && <p className="dim small">Agente: <code>{engines.agent}</code></p>}
         {err && <p className="err small" role="alert">{err}</p>}
         <div className="term" ref={host} />

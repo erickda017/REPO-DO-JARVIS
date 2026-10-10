@@ -1,321 +1,170 @@
 # J.A.R.V.I.S.
 
-A browser voice assistant with an Iron Man holographic interface. Say
-**"Hey Jarvis"**, he wakes, listens, and does real things through your tools —
-searches the web, generates images, drives your phone, reads your mail. The face
-is a web page (React + Vite + Three.js + custom GLSL). The brain is Claude Code,
-run headless as a library.
+Centro de comando pessoal para Windows, com várias IAs, uma interface holográfica com uma rede neural 3D que reage ao que
+está acontecendo (requisições, voz, agente) e um assistente que conversa por voz ou texto e **faz coisas de verdade** no
+seu PC: abre e organiza arquivos, pesquisa na web, usa serviços como Gmail, Drive e Calendar, e roda servidores MCP.
 
-**The only subscription you need is Claude Code.** No API keys, no OpenAI
-account, no cloud bill — the brain runs on your existing Claude Code login, and
-the heavy work (the model itself) runs on Anthropic's servers, so even a low-end
-laptop only has to draw the interface. **ElevenLabs is an optional add-on** that
-gives JARVIS a much better voice and sharper hearing; without it he speaks and
-listens through the browser's own speech, and everything still works.
+Você traz as suas próprias contas: **cada pessoa usa as próprias chaves de API**, guardadas só no computador dela.
 
 ---
 
-## Requirements
+## O que você precisa
 
-**In one line:** a Claude Code subscription, plus two free things every computer
-can have — Node.js and Chrome. That's the whole list.
+- **Windows 10 ou 11.**
+- **Node.js 20 ou mais novo** (grátis, <https://nodejs.org>).
+- **Pelo menos uma chave de API de IA.** Há planos grátis em Google Gemini, OpenRouter (modelos `:free`), NVIDIA NIM e Groq.
+  Você também pode usar um modelo seu rodando no Google Colab (veja abaixo).
 
-- **Claude Code, installed and logged in** — this is the only account you need.
-  Install it with the official method — `npm install -g @anthropic-ai/claude-code`,
-  or the platform installer at <https://docs.claude.com/en/docs/claude-code> —
-  then run `claude` once and complete login. The bridge reuses that login. **No
-  API key**, and usage is billed to your existing Claude account.
-- **Node.js 20 or newer** — free, one installer from <https://nodejs.org>. This
-  is a Node web app, so it is the one unavoidable tool.
-- **Google Chrome or Microsoft Edge**, in a **real browser window** — not an
-  embedded preview pane. Preview panes (including the one inside editors and
-  Claude Code) block microphone access, so the page loads and looks right but
-  never hears you. JARVIS also needs WebGL, which these browsers provide.
-- **Optional: an ElevenLabs API key** — a good add-on, not a requirement. It
-  gives a better voice and sharper transcription; the free tier is plenty for a
-  demo. Without it, everything runs on the browser's own speech.
+Não precisa de Claude Code, de login em nada da Anthropic, de GPU, nem de IA local. Tudo isso é opcional.
 
-Run `npm run setup` after cloning and it checks all of this for you, in plain
-language.
+Rode `npm run setup` para uma verificação em linguagem simples do que está pronto na sua máquina.
 
 ---
 
-## Quick start
-
-First, install, then start it:
+## Começando
 
 ```bash
+git clone <endereço deste repositório>
+cd <pasta>
 npm install
-npm start          # runs the brain and the face together
+npm start
 ```
 
-Then open the URL it prints (http://localhost:5173) in **Chrome**, click **INITIALISE**, and say **“Hey Jarvis”**.
+`npm start` compila e abre o aplicativo desktop. Na primeira vez demora um pouco.
 
-Prefer two terminals? Run them separately instead:
+### Primeiros passos dentro do app
+
+1. Abra a tela **IAs**.
+2. Escolha um provedor (por exemplo Gemini), cole a **chave**, clique em **Salvar chave** e depois em **Checar**.
+3. Escolha o **modelo** na lista e clique em **Usar modelo**. Ligue o interruptor **Ligada**.
+4. Se o modelo não cobra, marque **Grátis**. Sem isso, o JARVIS só usa uma IA paga quando você marca "Autorizo gasto" no pedido.
+5. Pronto: escreva ou fale na barra de comandos da tela inicial.
+
+### Dicas sobre as IAs
+
+- **Modelos permitidos:** em cada provedor você lista os modelos que aceita usar, em ordem. Se a cota de um acabar, o JARVIS
+  passa para o próximo da lista e depois para o próximo provedor, sozinho.
+- **Mais de uma chave:** o botão **+ Outra chave** cria outra entrada do mesmo serviço (Gemini, OpenRouter...) com chave própria.
+- **Usar só as APIs:** interruptor no topo da tela IAs. Ignora qualquer IA local.
+- **Qual IA respondeu:** a legenda mostra "respondido por provedor · modelo", e o histórico também.
+- **Pedidos sensíveis** (marcados como tal) nunca saem do seu PC: só uma IA local pode responder.
+- **Colab (túnel Cloudflare):** se você roda um modelo no Google Colab com `llama-cpp-python` e `cloudflared`, abra o cartão
+  "Colab" na tela IAs, cole a URL `https://algo.trycloudflare.com` e salve. A URL muda a cada sessão do Colab: é só colar a nova,
+  sem reiniciar o JARVIS. Se ela parar de responder, o JARVIS avisa.
+
+Detalhes em [docs/IA_LOCAL_E_APIS.md](docs/IA_LOCAL_E_APIS.md).
+
+---
+
+## O que ele faz
+
+- **Conversa e agente:** responde por texto ou voz e usa ferramentas do PC (arquivos, processos, disco, janelas) com um sistema de
+  permissões. Leitura é livre; **qualquer mudança pede a sua confirmação**.
+- **Pesquisa na web:** ler a internet não pede autorização. Ele avisa "Só um momento, buscando na web…" e mostra as fontes.
+- **Missões:** tarefas maiores divididas entre agentes especializados.
+- **Painéis:** o JARVIS desenha painéis na tela com dados reais.
+- **Voz:** ouve pelo microfone (escolha o microfone e teste o nível na tela de Voz) e fala. Atalho global: `Ctrl+Alt+J`.
+- **Bandeja do sistema:** fica ao lado do relógio e pode iniciar junto com o Windows (menu da bandeja → "Iniciar com o Windows").
+- **Tarefas, cronômetro, projetos e serviços:** monitores e listas com a rede neural reagindo.
+- **Programar:** um terminal dentro do app. Motores: Terminal comum, Claude Code (opcional, se estiver instalado) e "Meu agente"
+  (opcional, um agente de terminal seu).
+
+### Conectores
+
+Serviços que a IA pode ler e, com a sua permissão separada, alterar: Google (Gmail, Drive, Calendar, Sheets, Docs, Tasks,
+Contatos), GitHub, Notion, Slack, Wikipedia, clima e muitos outros. Cada um liga e desliga sozinho; **escrever sempre pede
+confirmação** mostrando o que vai ser enviado. Veja [docs/CONECTORES.md](docs/CONECTORES.md).
+
+**Login Google:** feito no navegador, com OAuth + PKCE. Você cria o **seu próprio** cliente OAuth ("Aplicativo para computador")
+no Google Cloud, cola o ID e o segredo no app, e autoriza no navegador. Só o token de renovação é guardado, cifrado.
+O passo a passo está em [docs/CONECTORES.md](docs/CONECTORES.md).
+
+### Servidores MCP
+
+Tela **Servidores MCP**: adicione servidores locais (stdio) ou remotos (HTTP). Tudo começa desligado, ferramenta por ferramenta,
+e se um servidor mudar a descrição de uma ferramenta aprovada ela volta a desligada. Veja [docs/MCP.md](docs/MCP.md).
+
+### IA local (opcional)
+
+Se você tem um projeto de IA local (llama-server com `INICIAR_IA.bat` e `PARAR_IA.bat`), aponte a pasta na tela **IA local**
+(ou coloque-a em `ia-local/`, que o git ignora). O JARVIS liga, desliga e confere se desligou de verdade. Sem isso, nada muda: ele
+usa as APIs.
+
+### Usar o roteador em outros programas
+
+O JARVIS expõe as suas IAs como um servidor no formato OpenAI em `http://127.0.0.1:8787/v1`, só neste PC e com uma chave
+(tela IAs → "Roteador para outros programas"). Qualquer ferramenta que fale esse formato ganha a troca automática de IA quando a
+cota de uma acaba.
+
+---
+
+## Gerar o instalador (MSI)
 
 ```bash
-npm install
+npm run app:dist
 ```
 
-Terminal 1 — the brain:
+Gera o MSI e a versão portátil em `release/out/`. Para escolher a versão: `JARVIS_VERSION=1.0.0` (no PowerShell,
+`$env:JARVIS_VERSION='1.0.0'`). O MSI instala por usuário, sem pedir administrador, e instalar uma versão nova por cima atualiza a
+anterior.
+
+A **assinatura digital é opcional**. Sem certificado o instalador funciona, mas o Windows mostra um aviso de "editor
+desconhecido". Para assinar, defina `JARVIS_SIGN_SHA1` (impressão digital de um certificado do seu repositório do Windows) ou
+`JARVIS_SIGN_PFX` + `JARVIS_SIGN_PASSWORD`. Veja `scripts/sign-win.cjs`.
+
+---
+
+## Onde ficam os seus dados
+
+Tudo o que é seu fica na pasta de dados do app (`%APPDATA%\J.A.R.V.I.S\data` no app instalado, ou `data/` aqui no modo de
+desenvolvimento), que **não vai para o git**:
+
+- chaves de API e segredos dos conectores, cifrados com o Windows (DPAPI), nunca mostrados de volta;
+- configurações, tarefas, memória, histórico, log de auditoria;
+- a chave do roteador local.
+
+Para desinstalar sem deixar rastro, apague essa pasta.
+
+---
+
+## Segurança
+
+- O bridge só aceita conexões do próprio PC (`127.0.0.1`).
+- Chaves ficam cifradas no disco e nunca voltam para a tela; só aparecem os 4 últimos caracteres.
+- Escrita em arquivos, serviços e MCP sempre pede confirmação; pedidos sensíveis bloqueiam a web, os conectores e o MCP.
+- Texto vindo da internet ou de servidores de terceiros é tratado como **dado**, nunca como instrução.
+- Conectores só falam com os endereços fixos de cada serviço, em HTTPS, com limite de tamanho e de ritmo.
+
+---
+
+## Testes
 
 ```bash
-npm run bridge
+npm run test:command   # roteador, provedores, configurações
+npm run test:agent     # agente, conectores, Google, MCP
+npm run test:app       # partes puras do app e o botão de desligar a IA local
 ```
 
-Terminal 2 — the face:
+---
 
-```bash
-npm run dev
-```
+## Interface web antiga
 
-Then open the app in a **real Chrome or Edge window**:
-
-```bash
-open http://localhost:5173
-```
-
-Click **INITIALISE**, allow the microphone when asked, and say **"Hey Jarvis"**.
-
-> It has to be a real browser window. Embedded preview panes block the
-> microphone, so JARVIS will look perfectly alive and simply never respond.
+O JARVIS começou como uma página no navegador com palavra de ativação ("Hey Jarvis"), gestos de mão e cérebro no Claude Code.
+Ela ainda está em `src/` e roda com `npm run start:web`. **Só ela** exige o Claude Code instalado e logado
+(`npm install -g @anthropic-ai/claude-code`, depois `claude` uma vez). O aplicativo desktop não precisa disso.
 
 ---
 
-## How it works
+## Documentação
 
-JARVIS is two processes. The browser is the face and the voice; the bridge is
-the brain and the hands.
-
-```
-  ┌─ browser (the face) ───────────────┐        ┌─ bridge (the brain) ─────────────┐
-  │  "Hey Jarvis" wake word            │        │  Node · bridge/server.mjs        │
-  │  local VAD  →  speech to text      │   ws   │  Claude Agent SDK                │
-  │  reactor UI (Three.js + GLSL)      │◄─────► │   = Claude Code, headless        │
-  │  text to speech                    │  8787  │  spawns your MCP servers         │
-  │  heads-up display                  │        │  permission gate (decideTool)    │
-  └────────────────────────────────────┘        └──────────────────────────────────┘
-```
-
-Everything you see and hear happens in the browser. The bridge is a single Node
-process (`bridge/server.mjs`) that runs the **Claude Agent SDK**
-(`@anthropic-ai/claude-agent-sdk`) — this spawns the real `claude` CLI as a child
-process, so **the brain literally is Claude Code, headless.** They talk over a
-WebSocket (plus a few HTTP endpoints) on `ws://localhost:8787`.
-
-**Why a bridge at all?** A browser tab cannot spawn the local stdio MCP servers —
-`higgsfield`, `elevenlabs`, `android`, `playwright`, `exa`, `serper`, and the
-rest. The bridge can. And because it is the Agent SDK, it authenticates off your
-existing Claude Code login: no API key, billed to that same Claude account.
-
-**The model.** `claude-opus-5` at effort `medium` by default. Override with the
-`JARVIS_MODEL` and `JARVIS_EFFORT` environment variables. On startup the bridge
-prints its choice, e.g. `[jarvis] model claude-opus-5 · effort medium`.
-
-### The voice pipeline
-
-The loop is designed so that nothing silently dies and barge-in feels natural.
-
-- **Detection is local.** An energy-based voice-activity detector
-  (`src/lib/vad.ts`) decides when you are speaking. It is instant, cannot quietly
-  fail, and is what makes **barge-in** work — speak while JARVIS is talking and he
-  stops.
-- **Transcription has two tiers, chosen automatically at boot.** The browser asks
-  the bridge `/health` and picks the best available:
-  - **ElevenLabs key present** → ElevenLabs Scribe, via the bridge `/stt` endpoint.
-  - **Nothing configured** → the browser's own `SpeechRecognition` (Chrome/Edge),
-    guarded by a heartbeat so it recovers when Chrome throttles it.
-- **Speaking** uses the **ElevenLabs voice when a key is present**, and the
-  browser's `speechSynthesis` otherwise. If a cloud call fails it falls back to
-  the browser voice, and if the OS voice itself is broken it latches over to the
-  cloud voice.
-
-So it works with no keys and auto-upgrades when a key appears — there is no flag
-to set. Capability detection lives in `src/lib/capabilities.ts`, which probes the
-bridge's `GET /health` (returning `{ ok, tts, stt }`, both tracking the
-ElevenLabs key) once at boot and picks the engines.
+- [docs/COMMAND_CENTER.md](docs/COMMAND_CENTER.md): visão geral do centro de comando e limites
+- [docs/IA_LOCAL_E_APIS.md](docs/IA_LOCAL_E_APIS.md): IAs, só APIs, desligar a IA local, pesquisa na web
+- [docs/CONECTORES.md](docs/CONECTORES.md): conectores e login Google
+- [docs/MCP.md](docs/MCP.md): servidores MCP
 
 ---
 
-## What JARVIS can do
+## Licença
 
-Beyond answering, JARVIS reaches every MCP server in your Claude Code
-configuration, and can drive his own interface.
-
-### Your tools
-
-Every server in your `~/.claude.json` is handed to the SDK explicitly. Depending
-on what you have installed, that is roughly:
-
-- **Web & search** — `exa`, `serper`, `serpapi`
-- **Images & video** — `higgsfield`, `openrouter-image`, `palmier-pro`
-- **Voice** — `elevenlabs`
-- **Your phone** — `android`
-- **The browser** — `playwright`
-
-A few things you can say:
-
-- *"What's happening in AI this week?"*
-- *"Generate an image of the Mark VII suit."*
-- *"Take a screenshot of my phone."*
-- *"Open my GitHub notifications."*
-
-> **Note on account connectors.** Servers you added through your **claude.ai
-> account** are not stored on disk, so the bridge cannot see them — it works from
-> the servers in `~/.claude.json` (about 14), not the claude.ai ones.
-
-### JARVIS controls the interface
-
-He drives the UI through MCP tools the bridge exposes:
-
-- `ui_theme` — accent, background, per-phase colours
-- `ui_reactor` — colour, scale, intensity, spin, and style (`ring` | `sphere` | `wire`), visibility
-- `ui_orbit` — put images in orbit around the reactor
-- `ui_chrome` — show or hide rails, transcript, badges
-- `ui_effect` — `glitch` | `pulse` | `scan` | `shake` | `flash`
-- `ui_screen` — clear
-- `ui_reset` — back to defaults
-
-So *"make it red, hide the systems list, put that render in orbit"* is a spoken
-command.
-
-### The heads-up display
-
-JARVIS authors panels with a `display` tool against a fixed `.hud-*` design
-system. The browser sanitises the markup (DOMPurify, a class allowlist and a
-strict CSP) before rendering. Rich media works — images, `<video>`, and
-YouTube/Vimeo embeds. Remote images and video are fetched **server-side** through
-the bridge (`/img` and `/media`, both SSRF-guarded), so hotlink-blocked news
-thumbnails still appear and the page never beacons your IP to a host the model
-chose.
-
----
-
-## Controls
-
-| Key / phrase | Does |
-|---|---|
-| **"Hey Jarvis"** | Wake him |
-| **Space** | Talk without the wake word |
-| Just speak | Interrupt him mid-sentence (barge-in) |
-| **V** | Cycle the browser voice |
-| **Escape** | Stand down |
-| **D** | Live diagnostics panel |
-| **T** | One-line audio self-test |
-
----
-
-## The boot sequence
-
-Power-up plays a four-beat Iron Man start-up (`src/ui/Boot.tsx`): an
-"INITIATING SYSTEM" status bar with a segmented progress bar and boot log; then
-concentric reticle rings resolving into "J.A.R.V.I.S"; then a suit schematic;
-then the triangular arc reactor lighting up — with a start-up sound under it
-(`public/audio/boot-music.mp3`).
-
----
-
-## Configuration
-
-Everything is optional in bridge mode. Frontend settings live in `.env.local`
-(copy `.env.example`); bridge settings are environment variables.
-
-### Bridge
-
-| Variable | Default | Effect |
-|---|---|---|
-| `JARVIS_BRIDGE_PORT` | `8787` | Port for the WebSocket + HTTP endpoints |
-| `JARVIS_MODEL` | `claude-opus-5` | Model to run |
-| `JARVIS_EFFORT` | `medium` | Reasoning effort |
-| `JARVIS_ALLOW_WRITES` | off | `1` allows effectful tools (see below) |
-| `JARVIS_ALLOWED_ORIGINS` | local dev | Extra WebSocket origins to accept |
-| `JARVIS_ALLOW_NO_ORIGIN` | off | Accept connections with no `Origin` header |
-| `JARVIS_FILE_ROOTS` | — | Roots the `/file` endpoint may serve from |
-| `JARVIS_VOICE_ID` | — | ElevenLabs voice id |
-| `ELEVENLABS_API_KEY` | — | Optional; enables the ElevenLabs voice + Scribe |
-
-### Frontend (`.env.local`)
-
-| Variable | Effect |
-|---|---|
-| `VITE_BACKEND` | `bridge` (default) or `direct` |
-| `VITE_BRIDGE_URL` | Where to reach the bridge |
-| `VITE_TTS_ENGINE` | `system` or `kokoro` |
-| `VITE_KOKORO_VOICE` | Voice for the Kokoro engine |
-| `VITE_USE_ELEVENLABS` | Force the ElevenLabs voice on |
-| `VITE_ANTHROPIC_API_KEY` | Direct mode only |
-
-### Adding an ElevenLabs key
-
-You do not have to touch a flag. Either:
-
-- Set `ELEVENLABS_API_KEY` on the bridge before starting it, **or**
-- Add the key to your `elevenlabs` MCP server's env in `~/.claude.json` — the
-  bridge reads it from there too.
-
-Either way, `/health` starts reporting the capability, the browser picks it up on
-the next boot, and both the voice and transcription upgrade automatically.
-
----
-
-## Enabling actions
-
-The tool gate starts **read-only**. Search, generation and lookups run freely;
-anything effectful — send, tap, delete, install, pay — is denied. Voice is a poor
-interface for a confirmation dialog, so the decision is made ahead of time in
-`decideTool()` in `bridge/server.mjs`, not at the moment of use. The bridge sets
-`settingSources: []`, which makes its own gate the only authority — filesystem
-settings and any global `bypassPermissions` cannot override it.
-
-To allow effectful tools (phone, browser driving, sending), run the bridge this
-way instead:
-
-```bash
-npm run bridge:writes
-```
-
-> Read `decideTool()` before you do. *"Hey Jarvis, clean up my downloads folder"*
-> means something rather different with writes enabled.
-
----
-
-## Troubleshooting
-
-**I can't hear him, or he can't hear me.** Press **D** for the diagnostics panel
-— it states plainly whether he is hearing you and whether he is producing sound.
-Press **T** for a one-line audio self-test.
-
-**No voice at all.** You must be in **Chrome or Edge**, in a **real browser
-window** (not an embedded preview), and you must have **allowed the microphone**.
-
-**Bridge not reachable.** Check that `npm run bridge` is still running in its
-terminal, and that nothing else is holding port `8787`.
-
----
-
-## Security
-
-All of this lives in `bridge/server.mjs`:
-
-- The WebSocket accepts only local dev origins (add more with
-  `JARVIS_ALLOWED_ORIGINS`).
-- `/file`, `/img` and `/media` validate the scheme, confine to allowed roots,
-  resolve the real path, and refuse private and loopback addresses (SSRF guard).
-- The tool gate (`decideTool`) is default-deny for effectful MCP tools.
-- A strict CSP in `index.html`; model-authored panel HTML is sanitised.
-
----
-
-## Credits & licence
-
-MIT.
-
-The boot sound and any tracks in `public/audio/` ship with the project for the
-demo. If you go on to monetise something built on this, clearing the rights to
-that audio is your responsibility.
-
----
-
-## Command centre (this fork)
-
-This fork adds a multi-provider command centre on top of the original bridge: provider layer, AI/service/project monitors, tasks and a timer. See [docs/COMMAND_CENTER.md](docs/COMMAND_CENTER.md) for status, limits and setup, and `command.config.example.json` for configuration.
+MIT. Os sons de `public/audio/` acompanham o projeto para demonstração: se você for monetizar algo feito a partir dele, liberar
+os direitos desse áudio é responsabilidade sua.

@@ -1,18 +1,16 @@
 #!/usr/bin/env node
-// JARVIS preflight — a friendly, advisory check you run with `npm run setup`.
+// Verificação prévia do JARVIS — conselho amigável, rode com `npm run setup`.
 //
-// It changes nothing and installs nothing. It looks at your machine, tells you
-// what is ready and what is missing, and prints the two commands that start
-// JARVIS. Every check degrades to a single friendly line if something is not
-// there, and the script always exits 0 — it is advice, not a gate.
+// Não muda nada e não instala nada. Olha a sua máquina, diz o que está pronto e o que falta
+// e mostra como iniciar. Sempre termina com código 0: é um aviso, não uma trava.
 
 import { spawnSync } from 'node:child_process';
-import { readFileSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 
-const tick = '  ok  ';
-const warn = ' note ';
+const ok = '  ok  ';
+const aviso = ' nota ';
 const info = '  ·   ';
 
 function line(tag, msg) {
@@ -20,97 +18,51 @@ function line(tag, msg) {
 }
 
 console.log('');
-console.log('JARVIS preflight — checking your machine (nothing is changed)');
-console.log('------------------------------------------------------------');
+console.log('JARVIS — verificação prévia (nada é alterado)');
+console.log('---------------------------------------------');
 
-// --- Node version --------------------------------------------------------
+// --- Sistema -------------------------------------------------------------
+if (process.platform === 'win32') line(ok, 'Windows: é o sistema para o qual o aplicativo desktop foi feito.');
+else line(aviso, `Sistema ${process.platform}: o aplicativo desktop (terminal, IA local, atalhos) é feito para Windows; parte dele pode não funcionar.`);
+
+// --- Node ----------------------------------------------------------------
+const major = Number(process.versions.node.split('.')[0]);
+if (Number.isFinite(major) && major >= 20) line(ok, `Node.js ${process.versions.node} (precisa de 20 ou mais).`);
+else line(aviso, `Node.js ${process.versions.node} é anterior ao 20. Atualize em https://nodejs.org — o bridge precisa do Node 20 ou mais novo.`);
+
+// --- Dependências --------------------------------------------------------
+if (existsSync('node_modules/electron')) line(ok, 'Dependências instaladas (npm install já foi feito).');
+else line(aviso, 'Dependências não instaladas. Rode `npm install` nesta pasta.');
+
+// --- Claude Code (opcional) ----------------------------------------------
 try {
-  const major = Number(process.versions.node.split('.')[0]);
-  if (Number.isFinite(major) && major >= 20) {
-    line(tick, `Node.js ${process.versions.node} (20+ required).`);
-  } else {
-    line(warn, `Node.js ${process.versions.node} is below 20. Please upgrade — the bridge needs Node 20 or newer.`);
-  }
+  const res = spawnSync('claude', ['--version'], { encoding: 'utf8', timeout: 10000, shell: process.platform === 'win32' });
+  if (res.status === 0 && res.stdout) line(ok, `Claude Code encontrado (${res.stdout.trim()}). É opcional: só aparece como motor na aba Programar.`);
+  else line(info, 'Claude Code não instalado. Tudo bem: é opcional e o JARVIS não depende dele nem de login.');
 } catch {
-  line(warn, 'Could not read the Node.js version. JARVIS needs Node 20 or newer.');
+  line(info, 'Claude Code não instalado. Tudo bem: é opcional e o JARVIS não depende dele nem de login.');
 }
 
-// --- Claude CLI on PATH ---------------------------------------------------
-let claudeFound = false;
-try {
-  const res = spawnSync('claude', ['--version'], { encoding: 'utf8', timeout: 10000 });
-  if (res.status === 0 && res.stdout) {
-    claudeFound = true;
-    line(tick, `Claude CLI found: ${res.stdout.trim()}`);
-  }
-} catch {
-  // ignore — handled below
-}
-if (!claudeFound) {
-  line(warn, 'Claude CLI not found on your PATH.');
-  line(info, 'Install it: npm install -g @anthropic-ai/claude-code');
-  line(info, '  (or the platform installer at https://docs.claude.com/en/docs/claude-code)');
-  line(info, 'Then run `claude` once and complete login. The bridge uses that login — no API key needed.');
-}
-
-// --- ~/.claude.json and MCP servers --------------------------------------
-const claudeJsonPath = join(homedir(), '.claude.json');
-let mcpCount = 0;
-try {
-  const raw = readFileSync(claudeJsonPath, 'utf8');
-  let parsed = {};
+// --- ElevenLabs (opcional, só na interface web antiga) -------------------
+const claudeJson = join(homedir(), '.claude.json');
+let el = process.env.ELEVENLABS_API_KEY && process.env.ELEVENLABS_API_KEY.trim() ? 'a variável ELEVENLABS_API_KEY' : null;
+if (!el) {
   try {
-    parsed = JSON.parse(raw);
-  } catch {
-    parsed = {};
-  }
-  const servers = parsed && typeof parsed.mcpServers === 'object' && parsed.mcpServers ? parsed.mcpServers : {};
-  mcpCount = Object.keys(servers).length;
-  if (mcpCount > 0) {
-    line(tick, `~/.claude.json found with ${mcpCount} MCP server${mcpCount === 1 ? '' : 's'} configured.`);
-  } else {
-    line(info, '~/.claude.json found, but no MCP servers are configured yet. JARVIS still answers and drives its own interface.');
-  }
-} catch {
-  line(info, '~/.claude.json not found yet. It appears once you run `claude` and log in. JARVIS works without any MCP servers.');
+    const servers = JSON.parse(readFileSync(claudeJson, 'utf8'))?.mcpServers ?? {};
+    if (servers.elevenlabs?.env?.ELEVENLABS_API_KEY) el = 'o servidor elevenlabs em ~/.claude.json';
+  } catch { /* sem chave à vista */ }
 }
+if (el) line(ok, `Voz premium disponível (ElevenLabs, via ${el}).`);
+else line(info, 'Sem chave ElevenLabs: a voz usa a do Windows/navegador. Está ótimo assim.');
 
-// --- ElevenLabs key (env or the elevenlabs MCP entry) --------------------
-function findElevenLabsKey() {
-  if (process.env.ELEVENLABS_API_KEY && process.env.ELEVENLABS_API_KEY.trim()) {
-    return 'environment (ELEVENLABS_API_KEY)';
-  }
-  try {
-    const raw = readFileSync(claudeJsonPath, 'utf8');
-    const parsed = JSON.parse(raw);
-    const servers = parsed && parsed.mcpServers ? parsed.mcpServers : {};
-    const el = servers.elevenlabs;
-    const env = el && el.env ? el.env : {};
-    if (env.ELEVENLABS_API_KEY && String(env.ELEVENLABS_API_KEY).trim()) {
-      return 'the elevenlabs MCP server in ~/.claude.json';
-    }
-  } catch {
-    // ignore — no key discoverable
-  }
-  return null;
-}
-
-const elSource = findElevenLabsKey();
-if (elSource) {
-  line(tick, `Premium voice available — ElevenLabs key found via ${elSource}.`);
-} else {
-  line(info, 'No ElevenLabs key found — JARVIS will use browser speech (that is completely fine).');
-  line(info, '  Optional: add ELEVENLABS_API_KEY for a better voice and Scribe transcription. The free tier is enough for a demo.');
-}
-
-// --- How to run ----------------------------------------------------------
+// --- Como rodar ----------------------------------------------------------
 console.log('');
-console.log('To run JARVIS, open two terminals:');
-console.log('  1)  npm run bridge      # the brain (Claude Code, headless)');
-console.log('  2)  npm run dev         # the face (open http://localhost:5173 in Chrome)');
+console.log('Para abrir o JARVIS (aplicativo desktop):');
+console.log('  npm start');
 console.log('');
-console.log('Then click INITIALISE and say "Hey Jarvis".');
-console.log('To let JARVIS take real actions (phone, browser, sending), run `npm run bridge:writes` instead of `npm run bridge`.');
+console.log('Depois, na tela IAs, ligue ao menos uma API (cole a chave e escolha o modelo; Gemini, OpenRouter,');
+console.log('NVIDIA e Groq têm planos grátis). Marque "Grátis" nas que não cobram.');
+console.log('Interface web antiga (precisa do Claude Code instalado e logado): npm run start:web');
 console.log('');
 
 process.exit(0);

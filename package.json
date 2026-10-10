@@ -10,7 +10,8 @@
     "node": ">=20"
   },
   "scripts": {
-    "start": "node scripts/start.mjs",
+    "start": "npm run app",
+    "start:web": "node scripts/start.mjs",
     "dev": "vite",
     "build": "tsc -b && vite build",
     "lint": "oxlint",

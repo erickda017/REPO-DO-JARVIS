@@ -6,7 +6,7 @@ import { ApisOnlyToggle } from './Views.tsx'
 
 const MODES: { id: IaMode; title: string; text: string; heavy?: boolean }[] = [
   { id: 'leve', title: 'Só modelo leve', text: 'Qwen 4B na porta 8082. Basta para conversar pelo JARVIS e usa ~3 GB de RAM.' },
-  { id: 'so-cris', title: 'Leve + C.R.I.S', text: 'Modelo leve, chat/painel na porta 8080 e a C.R.I.S atendendo os jogadores do Umbra.' },
+  { id: 'so-cris', title: 'Leve + C.R.I.S', text: 'Modelo leve, chat/painel na porta 8080 e a C.R.I.S (servidor de jogo do projeto de IA local).' },
   { id: 'so-ia', title: 'IA completa (sem C.R.I.S)', text: 'Modelo leve + modelo pesado (35B, vários modos de esforço) e o chat local.', heavy: true },
   { id: 'completo', title: 'IA + C.R.I.S', text: 'Tudo ligado: pesado, leve, chat e C.R.I.S. É o que o atalho "IA + C.R.I.S" faz.', heavy: true },
 ]
@@ -49,11 +49,11 @@ export function IaView() {
     <div className="page">
       <h1>IA local</h1>
       <ApisOnlyToggle />
-      <p className="dim lead">Liga e desliga a IA do projeto <code>ia-local</code> sem abrir janelas. É o mesmo comando dos seus atalhos, e o desligar usa o <code>PARAR_IA.bat</code> dela; a C.R.I.S e a ponte com o Umbra continuam funcionando como antes.</p>
+      <p className="dim lead">Opcional. Se você tem um projeto de IA local (modelos rodando em llama-server, com <code>INICIAR_IA.bat</code> e <code>PARAR_IA.bat</code>), aponte a pasta dele aqui e ligue/desligue sem abrir janelas. Sem ele, o JARVIS funciona normalmente só com as APIs da tela IAs.</p>
 
       {!st?.valid ? (
         <div className="panel form">
-          <p className="warn-text">Não achei a pasta da IA local{st?.root ? ` (${st.root})` : ''}.</p>
+          <p className="dim">Nenhuma IA local configurada{st?.root ? ` (${st.root} não é válida)` : ''}. Tudo bem: o JARVIS usa as APIs que você ligar na tela IAs. Se tiver uma, escolha a pasta.</p>
           <button className="btn primary" onClick={act('root', () => jv.ia.setRoot())}><FolderOpen size={14} /> Escolher a pasta</button>
         </div>
       ) : (
