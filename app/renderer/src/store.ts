@@ -9,7 +9,7 @@ import { chime } from './voice/mic.ts'
 import type { ProjectGraph } from '../../electron/projects.ts'
 import type { AgentEvent, Metrics } from '../../electron/transcripts.ts'
 
-export type View = 'home' | 'chat' | 'code' | 'projects' | 'ia' | 'agent' | 'missions' | 'panels' | 'ais' | 'system' | 'voice'
+export type View = 'home' | 'chat' | 'code' | 'projects' | 'ia' | 'agent' | 'missions' | 'panels' | 'connectors' | 'ais' | 'system' | 'voice'
 export interface Touch { id: number; path: string; at: number }
 
 export type CardBody =

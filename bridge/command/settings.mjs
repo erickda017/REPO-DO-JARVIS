@@ -14,14 +14,14 @@ const MODEL_RE = /^[\w.:/-]{1,120}$/
  * `data/settings.json` (gitignored), are never returned, and only `configured / source / last4` is
  * ever shown. Precedence for a key: saved here > real environment variable.
  */
-export function createSettings({ file, getRegistry, baseEnv = process.env, audit, vault = null } = {}) {
+export function createSettings({ file, getRegistry, baseEnv = process.env, audit, vault = null, getExtraNames = () => [] } = {}) {
   // The registry is built with this store's env, so it is looked up lazily.
   const registry = { list: () => getRegistry().list(), get: (id) => getRegistry().get(id), update: (id, o) => getRegistry().update(id, o), addKey: (b, id, k) => getRegistry().addKey(b, id, k), removeKey: (id) => getRegistry().removeKey(id) }
   let data = { secrets: {}, overrides: {}, flags: {}, extras: [] } // extras: [{ id, base, keyEnv }] = more API keys of one service, each its own provider
   let loaded = !file
   let chain = Promise.resolve()
 
-  const allowed = () => new Set(registry.list().map((p) => p.keyEnv).filter(Boolean))
+  const allowed = () => new Set([...registry.list().map((p) => p.keyEnv).filter(Boolean), ...getExtraNames()]) // + the secrets of connectors
 
   const persist = () => {
     if (!file) return Promise.resolve()

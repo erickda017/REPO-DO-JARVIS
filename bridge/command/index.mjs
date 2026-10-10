@@ -22,6 +22,7 @@ import { createMonitor } from '../agent/monitor.mjs'
 import { createProfiles } from '../agent/profiles.mjs'
 import { buildTools } from '../agent/tools.mjs'
 import { createAgent } from '../agent/agent.mjs'
+import { createConnectors } from '../agent/conectores.mjs'
 
 /**
  * Wires the command centre together. Every dependency that touches the world
@@ -32,7 +33,8 @@ export function createCommand({ config = loadConfig(), fetch: fetchImpl = fetch,
   const vault = persist && process.platform === 'win32' ? dpapi : null // keys at rest: DPAPI (this Windows user only)
   const audit = createAudit({ file: persist ? join(config.dataDir, 'audit.jsonl') : null, clock })
   let registry
-  const settings = createSettings({ file: persist ? join(config.dataDir, 'settings.json') : null, getRegistry: () => registry, baseEnv: env, audit, vault })
+  let connectors = null
+  const settings = createSettings({ file: persist ? join(config.dataDir, 'settings.json') : null, getRegistry: () => registry, baseEnv: env, audit, vault, getExtraNames: () => connectors?.secretNames() ?? [] })
   registry = createRegistry(config.providers, { fetch: fetchImpl, env: settings.env() })
   const health = createHealth({ registry, audit, clock })
   const router = createRouter({ registry, health, audit, clock })
@@ -47,7 +49,9 @@ export function createCommand({ config = loadConfig(), fetch: fetchImpl = fetch,
   const profiles = createProfiles({ file: persist ? join(config.dataDir, 'profile-state.json') : null, monitor, clock })
   const memory = createMemory({ file: persist ? join(config.dataDir, 'memory.jsonl') : null })
   let genui = null
-  const tools = buildTools({ access, monitor, profiles, env, dataDir: persist ? config.dataDir : undefined, memory, getGenUi: () => genui })
+  const tools = buildTools({ access, monitor, profiles, env, dataDir: persist ? config.dataDir : undefined, memory, getGenUi: () => genui, getConnectors: () => connectors })
+  connectors = createConnectors({ file: persist ? join(config.dataDir, 'connectors.json') : null, settings, fetch: fetchImpl, audit, clock })
+  connectors.attach(tools) // a connected service's tools appear in (and leave) the agent's table as the owner switches it
   const agent = createAgent({ router, tools, access, audit, flags: settings.flags, persona: personaText(), clock })
   const alerts = []
   /** Low-space warnings: one per drive per 12 h, only when a drive is under 10 % or 15 GB free. */
@@ -68,7 +72,7 @@ export function createCommand({ config = loadConfig(), fetch: fetchImpl = fetch,
   const openai = createOpenAiApi({ router, registry, file: persist ? join(config.dataDir, 'router-token.txt') : null, flags: settings.flags, audit })
   const missions = createOrchestrator({ router, agent, access, memory, audit, dir: persist ? join(config.dataDir, 'missions') : null, clock, hooks: { created: (id, goal) => genui?.forMission(id, goal) } })
   genui = createGenUi({ tools, access, flags: settings.flags, router, missions, monitor, audit, dir: persist ? join(config.dataDir, 'ui') : null, clock })
-  const parts = { openai, config, registry, health, router, services, projects, tasks, timer, audit, voice, settings, access, monitor, profiles, agent, alerts, missions, memory, genui }
+  const parts = { openai, config, registry, health, router, services, projects, tasks, timer, audit, voice, settings, access, monitor, profiles, agent, alerts, missions, memory, genui, connectors }
   const api = createApi({ ...parts, allowNoOrigin })
   if (config.autoStartMonitors) services.start()
   return { ...parts, api }

@@ -91,3 +91,27 @@ test('extra key: survives a restart with its settings, and removing it deletes t
     await rm(dir, { recursive: true, force: true })
   }
 })
+
+test('NVIDIA NIM: in the built-in catalogue, OpenAI-compatible against integrate.api.nvidia.com, its own key, and extra keys work like any service', async () => {
+  const { withCatalog } = await import('../../bridge/command/catalog.mjs')
+  const cfg = withCatalog([]).find((p) => p.id === 'nvidia')
+  assert.deepEqual([cfg.type, cfg.baseUrl, cfg.apiKeyEnv, cfg.enabled], ['openai-compat', 'https://integrate.api.nvidia.com/v1', 'NVIDIA_API_KEY', false])
+  const f = fakeFetch((url, init) => {
+    if (url.endsWith('/models')) return { body: { data: [{ id: 'meta/llama-3.1-8b-instruct' }, { id: 'nvidia/nv-embed-v1' }] } }
+    return bearer(init).includes('nvapi-bbbb') ? ok('resposta NIM') : { status: 429, body: { error: { message: 'rate' } } }
+  })
+  let registry
+  const settings = createSettings({ file: null, getRegistry: () => registry, baseEnv: {} })
+  registry = createRegistry([{ ...cfg, enabled: true, paid: false, models: ['meta/llama-3.1-8b-instruct'] }], { fetch: f, env: settings.env() })
+  const router = createRouter({ registry })
+  await settings.setKey('NVIDIA_API_KEY', 'nvapi-aaaaaaaaaa')
+  const id = await settings.addKey('nvidia')
+  await settings.setKey('NVIDIA_API_KEY_2', 'nvapi-bbbbbbbbbb')
+  const r = await router.run({ prompt: 'oi' })
+  assert.equal(r.provider, 'nvidia-2', 'first key rate limited, second one answers')
+  assert.match(f.calls.at(-1).url, /^https:\/\/integrate\.api\.nvidia\.com\/v1\/chat\/completions$/)
+  assert.equal(JSON.parse(f.calls.at(-1).body).model, 'meta/llama-3.1-8b-instruct')
+  const probe = await registry.get('nvidia').adapter.probe()
+  assert.deepEqual(probe.models, ['meta/llama-3.1-8b-instruct', 'nvidia/nv-embed-v1'])
+  assert.equal(id, 'nvidia-2')
+})

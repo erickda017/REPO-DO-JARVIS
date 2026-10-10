@@ -25,7 +25,7 @@ const SYS = ['sys_summary', 'sys_top', 'sys_temperature', 'monitor_report', 'dis
 export const ROLES = {
   engenheiro: {
     label: 'Engenharia', tier: 'strong', maxSteps: 16, readOnly: false,
-    tools: [...READ, 'fs_write', 'fs_mkdir', 'fs_move', 'git_checkpoint', 'project_run', 'server_start', 'server_status', 'server_stop', 'http_local', 'memory_remember', ...UI],
+    tools: [...READ, 'fs_write', 'fs_mkdir', 'fs_move', 'git_checkpoint', 'project_run', 'server_start', 'server_status', 'server_stop', 'http_local', 'memory_remember', 'group:connectors', ...UI],
     prompt: 'PAPEL: engenheiro de software. Antes de editar um projeto versionado rode git_status e, para mudança grande, git_checkpoint. Edite com fs_write (overwrite=true só no arquivo certo), depois confira com git_diff e rode os testes relevantes com project_run. Corrija a causa com evidência, não por tentativa aleatória. Preserve alterações que o usuário já tinha.',
   },
   diagnostico: {

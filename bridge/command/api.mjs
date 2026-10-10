@@ -46,7 +46,7 @@ const PERSONA = personaText() + '\n\n' +
   'Responda em português do Brasil, de forma direta e curta ' +
   '(no máximo duas ou três frases, a menos que peçam mais). Não invente fatos nem ações que não executou.'
 
-export function createApi({ openai, health, router, services, projects, tasks, timer, audit, voice, settings, access, monitor, profiles, agent, alerts, missions, memory, genui, allowNoOrigin }) {
+export function createApi({ openai, health, router, services, projects, tasks, timer, audit, voice, settings, access, monitor, profiles, agent, alerts, missions, memory, genui, connectors, allowNoOrigin }) {
   const PREFIX = '/api/command/'
 
   const routes = {
@@ -114,6 +114,13 @@ export function createApi({ openai, health, router, services, projects, tasks, t
       await settings.setProvider(String(b.id ?? ''), { enabled: b.enabled, model: b.model, priority: b.priority, free: b.free, allowedModels: b.allowedModels })
       return health.snapshot()
     },
+    // Connectors (external services the agent may use): credentials, on/off, permission to change things, a read-only test
+    'GET connectors': async () => connectors.list(),
+    'POST connectors/config': async (b) => connectors.configure(String(b.id ?? ''), b.values && typeof b.values === 'object' ? b.values : {}),
+    'POST connectors/enable': async (b) => connectors.setEnabled(String(b.id ?? ''), b.on === true),
+    'POST connectors/write': async (b) => connectors.setWrite(String(b.id ?? ''), b.on === true),
+    'POST connectors/clear': async (b) => connectors.clear(String(b.id ?? '')),
+    'POST connectors/test': async (b) => connectors.test(String(b.id ?? '')),
     'POST providers/addkey': async (b) => {
       await settings.addKey(String(b.base ?? ''))
       return health.snapshot()

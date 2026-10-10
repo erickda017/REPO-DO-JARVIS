@@ -34,7 +34,7 @@ const htmlToText = (html) =>
 const DENY_COMMAND = /(format-volume|\bformat\s+[a-z]:|diskpart|bcdedit|cipher\s+\/w|vssadmin|wbadmin|reg\s+(delete|add)\s+hk(lm|cr)|set-mppreference|add-mppreference|disable-windowsoptionalfeature|remove-item[^|;]*-recurse[^|;]*\s[a-z]:\\?\s*$|stop-service|sc\s+(stop|delete|config)|net\s+user|schtasks\s+\/(delete|create)|invoke-expression|iex\b|downloadstring|invoke-webrequest[^|;]*\|\s*iex|netsh\s+(advfirewall|firewall)|takeown|icacls[^|;]*\/grant|shutdown|restart-computer|stop-computer)/i
 
 /** @returns {Record<string, any>} the tool table, closed over the shared services */
-export function buildTools({ access, monitor, profiles, env = process.env, dataDir, memory = null, profileFile, getGenUi = null }) {
+export function buildTools({ access, monitor, profiles, env = process.env, dataDir, memory = null, profileFile, getGenUi = null, getConnectors = null }) {
   const T = {}
   const def = (name, group, risk, desc, params, run, confirm) => (T[name] = { name, group, risk, desc, params, run, confirm })
 
@@ -308,6 +308,14 @@ export function buildTools({ access, monitor, profiles, env = process.env, dataD
       return { data: r, verified: true, evidence: `painel ${id} na revisão ${r.specRev}` }
     })
     def('ui_close', 'ui', 'read', 'Fecha um painel que não é mais necessário.', { id: 'id do painel' }, async ({ id }) => ({ data: { closed: await ui().close(String(id)) } }))
+  }
+  // ------------------------------------------------------------------------- connectors (conectores.mjs adds each connected service's own tools)
+  if (getConnectors) {
+    def('conector_lista', 'connectors', 'read', 'Lista os conectores (serviços externos como GitHub, Notion, Slack): quais estão ligados, se podem alterar algo e o que falta configurar. Use quando o usuário pedir algo de um serviço externo que não aparece nas ferramentas.', {}, async () => {
+      const c = getConnectors()
+      if (!c) throw new AgentError('unavailable', 'conectores indisponíveis')
+      return { data: { note: 'quem liga e configura os conectores é o usuário, na tela Conectores', connectors: c.list().map((x) => ({ id: x.id, name: x.label, category: x.category, state: x.enabled ? (x.write ? 'ligado, pode alterar (com confirmação)' : 'ligado, só leitura') : x.ready ? 'configurado, desligado' : `precisa de configuração: ${x.missing.join(', ')}`, tools: x.enabled ? x.tools.filter((t) => x.write || t.risk === 'read').map((t) => t.name) : undefined })) } }
+    })
   }
   // ------------------------------------------------------------------------- memory + self-profile
   if (memory) {

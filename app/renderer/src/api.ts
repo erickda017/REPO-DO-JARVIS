@@ -106,7 +106,20 @@ async function call<T>(method: 'GET' | 'POST', path: string, body?: unknown): Pr
   return json as T
 }
 
+export interface ConnectorField { name: string; label: string; secret: boolean; required: boolean; kind: string; placeholder: string; configured: boolean; value?: string }
+export interface ConnectorView {
+  id: string; label: string; category: string; desc: string; help: string; selfHosted: boolean; hasTest: boolean
+  fields: ConnectorField[]; ready: boolean; missing: string[]; enabled: boolean; write: boolean
+  tools: { name: string; desc: string; risk: 'read' | 'write' | 'danger' }[]
+}
+
 export const api = {
+  connectors: () => call<ConnectorView[]>('GET', 'connectors'),
+  connectorConfig: (id: string, values: Record<string, string>) => call<ConnectorView>('POST', 'connectors/config', { id, values }),
+  connectorEnable: (id: string, on: boolean) => call<ConnectorView>('POST', 'connectors/enable', { id, on }),
+  connectorWrite: (id: string, on: boolean) => call<ConnectorView>('POST', 'connectors/write', { id, on }),
+  connectorClear: (id: string) => call<ConnectorView>('POST', 'connectors/clear', { id }),
+  connectorTest: (id: string) => call<{ ok: boolean; message: string }>('POST', 'connectors/test', { id }),
   overview: () => call<Overview>('GET', 'overview'),
   audit: () => call<AuditEntry[]>('GET', 'audit'),
   check: (providerId: string) => call<unknown>('POST', 'ai/check', { providerId }),
