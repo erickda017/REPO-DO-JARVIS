@@ -11,6 +11,7 @@ import { createTimer } from './timer.mjs'
 import { createApi } from './api.mjs'
 import { createVoice } from './voice.mjs'
 import { createSettings } from './settings.mjs'
+import { dpapi } from './vault.mjs'
 import { createOpenAiApi } from './openaiApi.mjs'
 import { createAccess } from '../agent/access.mjs'
 import { createMonitor } from '../agent/monitor.mjs'
@@ -24,9 +25,10 @@ import { createAgent } from '../agent/agent.mjs'
  * without a network or a disk.
  */
 export function createCommand({ config = loadConfig(), fetch: fetchImpl = fetch, env = process.env, clock = Date.now, allowNoOrigin = false, persist = true, envKey = () => null } = {}) {
+  const vault = persist && process.platform === 'win32' ? dpapi : null // keys at rest: DPAPI (this Windows user only)
   const audit = createAudit({ file: persist ? join(config.dataDir, 'audit.jsonl') : null, clock })
   let registry
-  const settings = createSettings({ file: persist ? join(config.dataDir, 'settings.json') : null, getRegistry: () => registry, baseEnv: env, audit })
+  const settings = createSettings({ file: persist ? join(config.dataDir, 'settings.json') : null, getRegistry: () => registry, baseEnv: env, audit, vault })
   registry = createRegistry(config.providers, { fetch: fetchImpl, env: settings.env() })
   const health = createHealth({ registry, audit, clock })
   const router = createRouter({ registry, health, audit, clock })
@@ -34,7 +36,7 @@ export function createCommand({ config = loadConfig(), fetch: fetchImpl = fetch,
   const projects = createProjectMonitor({ projects: config.projects, services })
   const tasks = createTaskStore({ file: persist ? join(config.dataDir, 'tasks.json') : null, clock, audit })
   const timer = createTimer({ file: persist ? join(config.dataDir, 'timer.json') : null, clock, audit })
-  const voice = createVoice({ file: persist ? join(config.dataDir, 'voice.json') : null, env, envKey, fetch: fetchImpl, audit })
+  const voice = createVoice({ file: persist ? join(config.dataDir, 'voice.json') : null, env, envKey, fetch: fetchImpl, audit, vault })
   // Desktop agent: permissions, real-metrics monitor, profiles, tools and the loop that drives them through the router.
   const access = createAccess({ file: persist ? join(config.dataDir, 'agent-access.json') : null, env, deny: persist ? [config.dataDir] : [] })
   const monitor = createMonitor({ clock })

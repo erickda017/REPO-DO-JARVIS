@@ -712,11 +712,13 @@ const handleRequest = async (req, res) => {
     return res.end()
   }
 
+  // Started by the app: everything except /health and the token-protected OpenAI door needs the per-launch token (/tts, /stt, /file, /img, /media, /page too).
+  if (APP_TOKEN && !req.url?.startsWith('/v1/') && req.url !== '/health' && req.headers['x-jarvis-token'] !== APP_TOKEN) {
+    res.writeHead(401, { ...cors, 'content-type': 'application/json' })
+    return res.end(JSON.stringify({ error: 'missing or wrong app token' }))
+  }
+
   if (req.url?.startsWith('/api/command/')) {
-    if (APP_TOKEN && req.headers['x-jarvis-token'] !== APP_TOKEN) {
-      res.writeHead(401, { ...cors, 'content-type': 'application/json' })
-      return res.end(JSON.stringify({ error: 'missing or wrong app token' }))
-    }
     if (await command.api.handle(req, res, cors)) return
   }
   if (req.url?.startsWith('/v1/') && (await command.openai.handle(req, res))) return

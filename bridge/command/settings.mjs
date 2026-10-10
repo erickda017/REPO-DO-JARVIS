@@ -14,7 +14,7 @@ const MODEL_RE = /^[\w.:/-]{1,120}$/
  * `data/settings.json` (gitignored), are never returned, and only `configured / source / last4` is
  * ever shown. Precedence for a key: saved here > real environment variable.
  */
-export function createSettings({ file, getRegistry, baseEnv = process.env, audit } = {}) {
+export function createSettings({ file, getRegistry, baseEnv = process.env, audit, vault = null } = {}) {
   // The registry is built with this store's env, so it is looked up lazily.
   const registry = { list: () => getRegistry().list(), get: (id) => getRegistry().get(id), update: (id, o) => getRegistry().update(id, o) }
   let data = { secrets: {}, overrides: {}, flags: {} }
@@ -29,7 +29,9 @@ export function createSettings({ file, getRegistry, baseEnv = process.env, audit
     const run = chain.then(async () => {
       await mkdir(dirname(file), { recursive: true })
       const tmp = `${file}.tmp`
-      await writeFile(tmp, JSON.stringify(data), { encoding: 'utf8', mode: 0o600 })
+      // With a vault the keys never touch the disk in the clear.
+      const out = vault ? { enc: Object.keys(data.secrets).length ? await vault.seal(JSON.stringify(data.secrets)) : '', overrides: data.overrides, flags: data.flags } : data
+      await writeFile(tmp, JSON.stringify(out), { encoding: 'utf8', mode: 0o600 })
       await rename(tmp, file)
       await chmod(file, 0o600).catch(() => {})
     })
@@ -53,7 +55,10 @@ export function createSettings({ file, getRegistry, baseEnv = process.env, audit
       loaded = true
       try {
         const j = JSON.parse(await readFile(file, 'utf8'))
-        data = { secrets: j.secrets ?? {}, overrides: j.overrides ?? {}, flags: j.flags ?? {} }
+        const sealed = typeof j.enc === 'string' && j.enc ? JSON.parse(await vault.open(j.enc)) : null
+        data = { secrets: sealed ?? j.secrets ?? {}, overrides: j.overrides ?? {}, flags: j.flags ?? {} }
+        // Old plaintext file: seal it now (nothing is lost if this fails; the next save retries).
+        if (vault && !sealed && Object.keys(data.secrets).length) await persist().catch(() => {})
       } catch {
         /* first run */
       }

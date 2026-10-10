@@ -1,4 +1,4 @@
-﻿import test from 'node:test'
+import test from 'node:test'
 import assert from 'node:assert/strict'
 import http from 'node:http'
 import { mkdtemp, readFile, writeFile } from 'node:fs/promises'
@@ -278,6 +278,34 @@ test('settings: keys only for declared names, never returned, saved key wins, ov
   assert.deepEqual([registry.get('or').enabled, registry.get('or').priority, s2.env().OPENROUTER_API_KEY], [true, 7, 'panel-key-ABCDEFGH'])
 })
 
+test('settings + voice: with a vault the keys are never in the file in the clear, and an old plaintext file is sealed on load', async () => {
+  const vault = { seal: async (s) => 'SEALED:' + Buffer.from(s).toString('base64'), open: async (s) => Buffer.from(s.slice(7), 'base64').toString() }
+  const dir = await mkdtemp(join(tmpdir(), 'jv-'))
+  const sf = join(dir, 'settings.json')
+  const vf = join(dir, 'voice.json')
+  await writeFile(sf, JSON.stringify({ secrets: { OPENROUTER_API_KEY: 'old-plain-key-ABCDEFGH' }, overrides: {}, flags: {} }))
+  await writeFile(vf, JSON.stringify({ apiKey: 'old-voice-key-ABCDEFGH', voiceId: '' }))
+  let registry
+  const s = createSettings({ file: sf, getRegistry: () => registry, baseEnv: {}, vault })
+  registry = createRegistry([{ id: 'or', type: 'openai-compat', baseUrl: 'https://openrouter.ai/api/v1', apiKeyEnv: 'OPENROUTER_API_KEY', models: ['x'], enabled: false }], { env: s.env() })
+  await s.ready()
+  const v = createVoice({ file: vf, env: {}, vault })
+  await v.status()
+  assert.equal(s.env().OPENROUTER_API_KEY, 'old-plain-key-ABCDEFGH')
+  assert.equal(v.key(), 'old-voice-key-ABCDEFGH')
+  const { readFile } = await import('node:fs/promises')
+  for (const file of [sf, vf]) assert.ok(!(await readFile(file, 'utf8')).includes('ABCDEFGH'), 'no clear key left on disk')
+  const s2 = createSettings({ file: sf, getRegistry: () => registry, baseEnv: {}, vault }) // restart reads the sealed file
+  await s2.ready()
+  assert.equal(s2.env().OPENROUTER_API_KEY, 'old-plain-key-ABCDEFGH')
+})
+
+test('vault: real Windows DPAPI round trip', { skip: process.platform !== 'win32' }, async () => {
+  const { dpapi } = await import('../../bridge/command/vault.mjs')
+  const sealed = await dpapi.seal('segredo-çã-123')
+  assert.ok(!sealed.includes('segredo'))
+  assert.equal(await dpapi.open(sealed), 'segredo-çã-123')
+})
 test('config: a real key pasted into apiKeyEnv is dropped, never echoed, and flagged on the provider', async () => {
   const { loadConfig } = await import('../../bridge/command/config.mjs')
   const dir = await mkdtemp(join(tmpdir(), 'jv-'))

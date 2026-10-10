@@ -15,7 +15,7 @@ export const DEFAULT_VOICE_ID = 'JBFqnCBsd6RMkjVDRZzb' // base JARVIS default (E
  * only in `data/voice.json` on this machine (gitignored); no endpoint ever
  * returns it, only whether one is set and its last four characters.
  */
-export function createVoice({ file, env = process.env, envKey = () => null, fetch: fetchImpl = fetch, audit } = {}) {
+export function createVoice({ file, env = process.env, envKey = () => null, fetch: fetchImpl = fetch, audit, vault = null } = {}) {
   let saved = { apiKey: '', voiceId: '' }
   let loaded = !file
   let chain = Promise.resolve()
@@ -25,7 +25,9 @@ export function createVoice({ file, env = process.env, envKey = () => null, fetc
     loaded = true
     try {
       const j = JSON.parse(await readFile(file, 'utf8'))
-      saved = { apiKey: String(j.apiKey ?? ''), voiceId: String(j.voiceId ?? '') }
+      const key = typeof j.enc === 'string' && j.enc ? await vault.open(j.enc) : String(j.apiKey ?? '')
+      saved = { apiKey: key, voiceId: String(j.voiceId ?? '') }
+      if (vault && !j.enc && key) await persist().catch(() => {}) // seal an old plaintext file
     } catch {
       /* nothing saved yet */
     }
@@ -36,7 +38,8 @@ export function createVoice({ file, env = process.env, envKey = () => null, fetc
     const run = chain.then(async () => {
       await mkdir(dirname(file), { recursive: true })
       const tmp = `${file}.tmp`
-      await writeFile(tmp, JSON.stringify(saved), { encoding: 'utf8', mode: 0o600 })
+      const out = vault ? { enc: saved.apiKey ? await vault.seal(saved.apiKey) : '', voiceId: saved.voiceId } : saved
+      await writeFile(tmp, JSON.stringify(out), { encoding: 'utf8', mode: 0o600 })
       await rename(tmp, file)
       await chmod(file, 0o600).catch(() => {}) // best effort; Windows ignores POSIX modes
     })

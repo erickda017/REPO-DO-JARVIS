@@ -113,7 +113,7 @@ export const api = {
 /** Speak text with the bridge's ElevenLabs endpoint; resolves false when it is not available. */
 export async function speakViaBridge(text: string): Promise<boolean> {
   try {
-    const r = await fetch(`${BASE}/tts`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ text }) })
+    const r = await fetch(`${BASE}/tts`, { method: 'POST', headers: { 'content-type': 'application/json', ...(window.jarvis?.token ? { 'x-jarvis-token': window.jarvis.token } : {}) }, body: JSON.stringify({ text }) })
     if (!r.ok) return false
     const audio = new Audio(URL.createObjectURL(await r.blob()))
     // Resolves when the voice has FINISHED, so the caption can disappear exactly then.
